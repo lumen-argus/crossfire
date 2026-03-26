@@ -218,15 +218,9 @@ def evaluate_cmd(
     Tests which rules fire on real data. If the corpus has labels,
     computes precision, recall, and F1 per rule.
     """
-    import json
     from crossfire.corpus import evaluate_corpus, load_corpus_jsonl
-    from crossfire.loader import load_multiple
 
-    try:
-        rules = load_multiple(list(rules_files), skip_invalid=skip_invalid)
-    except (ValidationError, LoadError) as e:
-        click.echo(f"ERROR: {e}", err=True)
-        sys.exit(EXIT_INPUT_ERROR)
+    rules = _load_rules_or_exit(rules_files, skip_invalid)
 
     try:
         entries = load_corpus_jsonl(
@@ -263,13 +257,8 @@ def evaluate_git_cmd(
     which rules match.
     """
     from crossfire.corpus import evaluate_corpus, load_corpus_git
-    from crossfire.loader import load_multiple
 
-    try:
-        rules = load_multiple(list(rules_files), skip_invalid=skip_invalid)
-    except (ValidationError, LoadError) as e:
-        click.echo(f"ERROR: {e}", err=True)
-        sys.exit(EXIT_INPUT_ERROR)
+    rules = _load_rules_or_exit(rules_files, skip_invalid)
 
     try:
         entries = load_corpus_git(repo, max_commits=max_commits)
@@ -308,13 +297,7 @@ def diff_cmd(
     """
     import json
     from crossfire.corpus import diff_corpora, load_corpus_jsonl
-    from crossfire.loader import load_multiple
-
-    try:
-        rules = load_multiple(list(rules_files), skip_invalid=skip_invalid)
-    except (ValidationError, LoadError) as e:
-        click.echo(f"ERROR: {e}", err=True)
-        sys.exit(EXIT_INPUT_ERROR)
+    rules = _load_rules_or_exit(rules_files, skip_invalid)
 
     try:
         entries_a = load_corpus_jsonl(corpus_a, text_field=corpus_field)
@@ -340,24 +323,26 @@ def diff_cmd(
         _render_diff_table(result, output)
 
 
+def _load_rules_or_exit(
+    rules_files: tuple[str, ...] | list[str],
+    skip_invalid: bool,
+) -> list:
+    """Load rules from files, exiting on error."""
+    from crossfire.loader import load_multiple
+
+    try:
+        return load_multiple(list(rules_files), skip_invalid=skip_invalid)
+    except (ValidationError, LoadError) as e:
+        click.echo(f"ERROR: {e}", err=True)
+        sys.exit(EXIT_INPUT_ERROR)
+
+
 def _render_evaluation(report: "EvaluationReport", fmt: str, output: Optional[str]) -> None:
     """Render evaluation report."""
     import json
-    from dataclasses import asdict
-    from crossfire.corpus import EvaluationReport
 
     if fmt == "json":
-        data = {
-            "total_entries": report.total_entries,
-            "labeled_entries": report.labeled_entries,
-            "rules_evaluated": report.rules_evaluated,
-            "rule_metrics": [asdict(m) for m in report.rule_metrics if m.matched_count > 0],
-            "co_firing": [
-                {"rule_a": a, "rule_b": b, "count": c}
-                for a, b, c in report.co_firing[:50]
-            ],
-            "summary": report.summary,
-        }
+        data = _evaluation_to_dict(report)
         content = json.dumps(data, indent=2, default=str)
         if output:
             Path(output).write_text(content)
@@ -367,7 +352,7 @@ def _render_evaluation(report: "EvaluationReport", fmt: str, output: Optional[st
     elif fmt == "summary":
         s = report.summary
         click.echo(
-            f"Evaluated {s['total_entries']} entries against {report.rules_evaluated} rules. "
+            f"Evaluated {report.total_entries} entries against {report.rules_evaluated} rules. "
             f"{s['rules_firing']} rules fired, {s['co_firing_pairs']} co-firing pairs."
         )
         if report.labeled_entries:
@@ -424,16 +409,29 @@ def _render_evaluation(report: "EvaluationReport", fmt: str, output: Optional[st
             click.echo()
 
         if output:
-            # Also write JSON if output specified
             import json
-            from dataclasses import asdict
-            data = {
-                "rule_metrics": [asdict(m) for m in report.rule_metrics if m.matched_count > 0],
-                "co_firing": [{"rule_a": a, "rule_b": b, "count": c} for a, b, c in report.co_firing],
-                "summary": report.summary,
-            }
+            data = _evaluation_to_dict(report)
             Path(output).write_text(json.dumps(data, indent=2, default=str))
             click.echo(f"  Full report written to {output}")
+
+
+def _evaluation_to_dict(report: object) -> dict:
+    """Convert evaluation report to a JSON-serializable dict."""
+    from dataclasses import asdict
+    return {
+        "total_entries": report.total_entries,  # type: ignore[attr-defined]
+        "labeled_entries": report.labeled_entries,  # type: ignore[attr-defined]
+        "rules_evaluated": report.rules_evaluated,  # type: ignore[attr-defined]
+        "rule_metrics": [
+            asdict(m) for m in report.rule_metrics  # type: ignore[attr-defined]
+            if m.matched_count > 0
+        ],
+        "co_firing": [
+            {"rule_a": a, "rule_b": b, "count": c}
+            for a, b, c in report.co_firing  # type: ignore[attr-defined]
+        ],
+        "summary": report.summary,  # type: ignore[attr-defined]
+    }
 
 
 def _render_diff_table(result: dict, output: Optional[str]) -> None:

@@ -106,20 +106,16 @@ def recommend_samples(
     return max(10, n)
 
 
+_Z_LOOKUP = {0.90: 1.6449, 0.95: 1.9600, 0.99: 2.5758}
+
+
 def _z_score(confidence: float) -> float:
     """Approximate z-score for common confidence levels.
 
-    Uses a lookup for common values, falls back to inverse error function
-    approximation for others.
+    Uses a lookup for common values, falls back to rational approximation
+    for others.
     """
-    # Lookup for common confidence levels
-    lookup = {
-        0.90: 1.6449,
-        0.95: 1.9600,
-        0.99: 2.5758,
-    }
-    # Check for close match (within 0.001)
-    for level, z in lookup.items():
+    for level, z in _Z_LOOKUP.items():
         if abs(confidence - level) < 0.001:
             return z
 

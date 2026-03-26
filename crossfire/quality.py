@@ -26,7 +26,6 @@ class RuleQuality:
     name: str
     source: str
     specificity: float  # 0.0 = matches everything, 1.0 = very selective
-    generation_success_rate: float  # % of generation attempts that produced valid matches
     false_positive_potential: int  # number of OTHER rules' corpus strings this rule matches
     pattern_complexity: int  # regex AST node count
     unique_coverage: int  # corpus strings matched by this rule and NO other rule
@@ -70,25 +69,27 @@ def assess_quality(
     Returns:
         QualityReport with per-rule metrics and aggregate findings.
     """
-    if seed is not None:
-        random.seed(seed)
+    rng = random.Random(seed) if seed is not None else random.Random()
 
     log.info("Quality assessment started for %d rules", len(rules))
 
-    # Pre-compute overlap counts per rule from the matrix
     overlap_counts = _compute_overlap_counts(matrix, rules)
+    unique_coverage = _compute_unique_coverage(matrix, corpus_sizes, rules)
+    random_corpus = _generate_random_strings(specificity_samples, rng)
 
-    # Pre-compute unique coverage per rule
-    unique_coverage = _compute_unique_coverage(matrix, corpus, rules)
-
-    # Generate random strings for specificity testing
-    random_corpus = _generate_random_strings(specificity_samples)
+    # Batch specificity: one pass over random corpus for all rules
+    random_match_counts: dict[str, int] = {r.name: 0 for r in rules}
+    for s in random_corpus:
+        for rule in rules:
+            if rule.compiled.search(s):
+                random_match_counts[rule.name] += 1
 
     results: list[RuleQuality] = []
     for rule in rules:
         quality = _assess_single_rule(
             rule, matrix, corpus_sizes, overlap_counts,
-            unique_coverage, random_corpus, broad_threshold,
+            unique_coverage, random_match_counts,
+            len(random_corpus), broad_threshold,
         )
         results.append(quality)
 
@@ -154,33 +155,24 @@ def _assess_single_rule(
     corpus_sizes: dict[str, int],
     overlap_counts: dict[str, int],
     unique_coverage: dict[str, int],
-    random_corpus: list[str],
+    random_match_counts: dict[str, int],
+    random_corpus_size: int,
     broad_threshold: int,
 ) -> RuleQuality:
     """Assess quality metrics for a single rule."""
-    # Specificity: what fraction of random strings does this rule NOT match?
-    random_matches = sum(1 for s in random_corpus if rule.compiled.search(s))
-    specificity = 1.0 - (random_matches / len(random_corpus)) if random_corpus else 1.0
+    random_matches = random_match_counts.get(rule.name, 0)
+    specificity = 1.0 - (random_matches / random_corpus_size) if random_corpus_size else 1.0
 
-    # False positive potential: how many other rules' corpus strings does this rule match?
     fp_potential = 0
     rule_matches = matrix.get(rule.name, {})
     for other_rule, count in rule_matches.items():
         if other_rule != rule.name and count > 0:
             fp_potential += count
 
-    # Pattern complexity via sre_parse
     complexity = _pattern_complexity(rule.pattern)
-
-    # Overlap count
     ovr_count = overlap_counts.get(rule.name, 0)
-
-    # Unique coverage
     unique = unique_coverage.get(rule.name, 0)
-
-    # Generation success rate (from corpus sizes vs expected)
     actual = corpus_sizes.get(rule.name, 0)
-
     is_broad = ovr_count > broad_threshold
 
     flags: list[str] = []
@@ -204,7 +196,6 @@ def _assess_single_rule(
         name=rule.name,
         source=rule.source,
         specificity=round(specificity, 4),
-        generation_success_rate=1.0,  # TODO: track in generator
         false_positive_potential=fp_potential,
         pattern_complexity=complexity,
         unique_coverage=unique,
@@ -234,45 +225,41 @@ def _compute_overlap_counts(
 
 def _compute_unique_coverage(
     matrix: MatchMatrix,
-    corpus: list[CorpusEntry],
+    corpus_sizes: dict[str, int],
     rules: list[Rule],
 ) -> dict[str, int]:
-    """Compute how many corpus strings are matched by exactly one rule.
+    """Estimate how many corpus strings are NOT matched by any other rule.
 
-    For each rule, count corpus strings from its OWN corpus that are NOT
-    matched by any other rule.
+    Uses the maximum single-rule overlap as a conservative estimate.
+    For exact per-string uniqueness, use real corpus evaluation instead.
     """
     rule_names = {r.name for r in rules}
     unique: dict[str, int] = {r.name: 0 for r in rules}
 
-    # For each rule, check how many of its corpus strings are matched by others
     for rule in rules:
-        own_corpus_size = sum(
-            1 for e in corpus
-            if e.source_rule == rule.name and not e.is_negative
-        )
-        # Count how many other rules also match this rule's corpus
-        matched_by_others = 0
+        own_size = corpus_sizes.get(rule.name, 0)
+        # Find the highest overlap from any single other rule
+        max_overlap = 0
         for other_name in rule_names:
             if other_name == rule.name:
                 continue
             other_matches = matrix.get(other_name, {}).get(rule.name, 0)
-            if other_matches > 0:
-                matched_by_others = max(matched_by_others, other_matches)
+            max_overlap = max(max_overlap, other_matches)
 
-        unique[rule.name] = max(0, own_corpus_size - matched_by_others)
+        unique[rule.name] = max(0, own_size - max_overlap)
 
     return unique
 
 
-def _generate_random_strings(count: int) -> list[str]:
+def _generate_random_strings(count: int, rng: random.Random) -> list[str]:
     """Generate random strings of varying lengths for specificity testing."""
     strings: list[str] = []
     charset = string.ascii_letters + string.digits + string.punctuation + " "
+    lengths = [8, 16, 32, 64, 128]
 
     for _ in range(count):
-        length = random.choice([8, 16, 32, 64, 128])
-        s = "".join(random.choices(charset, k=length))
+        length = rng.choice(lengths)
+        s = "".join(rng.choices(charset, k=length))
         strings.append(s)
 
     return strings

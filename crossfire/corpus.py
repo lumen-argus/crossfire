@@ -227,23 +227,19 @@ def evaluate_corpus(
     co_fire_counts: dict[tuple[str, str], int] = {}
 
     # Labeled evaluation
-    has_labels = any(e.label for e in corpus)
-    label_counts: dict[str, int] = {}  # label → count of entries with that label
+    labeled = sum(1 for e in corpus if e.label)
+    has_labels = labeled > 0
     tp: dict[str, int] = {r.name: 0 for r in rules}
     fp: dict[str, int] = {r.name: 0 for r in rules}
     fn: dict[str, int] = {r.name: 0 for r in rules}
 
-    if has_labels:
-        for entry in corpus:
-            if entry.label:
-                label_counts[entry.label] = label_counts.get(entry.label, 0) + 1
-
     for entry_idx, entry in enumerate(corpus):
-        # Find all rules that match this entry
         firing_rules: list[str] = []
+        firing_set: set[str] = set()
         for rule in rules:
             if rule.compiled.search(entry.text):
                 firing_rules.append(rule.name)
+                firing_set.add(rule.name)
                 match_counts[rule.name] += 1
 
                 if not redact_samples:
@@ -263,12 +259,12 @@ def evaluate_corpus(
             label = entry.label
             for rule in rules:
                 if rule.name == label or label in rule.tags:
-                    if rule.name in firing_rules:
+                    if rule.name in firing_set:
                         tp[rule.name] += 1
                     else:
                         fn[rule.name] += 1
                 else:
-                    if rule.name in firing_rules:
+                    if rule.name in firing_set:
                         fp[rule.name] += 1
 
         # Progress every 10%
@@ -308,7 +304,6 @@ def evaluate_corpus(
     duration = time.monotonic() - t0
 
     # Summary stats
-    labeled = sum(1 for e in corpus if e.label)
     firing_rules_count = sum(1 for c in match_counts.values() if c > 0)
     avg_precision = 0.0
     avg_recall = 0.0
@@ -328,13 +323,10 @@ def evaluate_corpus(
         co_firing=co_firing[:100],  # top 100 co-firing pairs
         duration_s=round(duration, 1),
         summary={
-            "total_entries": len(corpus),
-            "labeled_entries": labeled,
             "rules_firing": firing_rules_count,
             "co_firing_pairs": len(co_firing),
             "avg_precision": avg_precision,
             "avg_recall": avg_recall,
-            "duration_s": round(duration, 1),
         },
     )
 

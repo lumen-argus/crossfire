@@ -6,7 +6,7 @@ import logging
 from collections import defaultdict
 from typing import Optional
 
-from crossfire.confidence import ci_width, wilson_interval
+from crossfire.confidence import wilson_interval
 from crossfire.evaluator import MatchMatrix
 from crossfire.models import ClusterInfo, OverlapResult, Rule
 
@@ -131,8 +131,8 @@ class Classifier:
         ci_ba = wilson_interval(b_matches_a, size_a)
 
         # Warn if CI is too wide for reliable classification
-        width_ab = ci_width(a_matches_b, size_b)
-        width_ba = ci_width(b_matches_a, size_a)
+        width_ab = round(ci_ab[1] - ci_ab[0], 4)
+        width_ba = round(ci_ba[1] - ci_ba[0], 4)
         if width_ab > 0.3 or width_ba > 0.3:
             log.warning(
                 "Pair (%s, %s): wide CI (a->b: %.2f, b->a: %.2f) — "

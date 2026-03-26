@@ -75,27 +75,21 @@ class TestOverlapCounts:
 class TestUniqueCoverage:
     def test_all_unique(self):
         rules = [_make_rule("a", "x"), _make_rule("b", "y")]
-        corpus = [
-            CorpusEntry(text="x1", source_rule="a"),
-            CorpusEntry(text="y1", source_rule="b"),
-        ]
+        corpus_sizes = {"a": 1, "b": 1}
         matrix = {"a": {"a": 1}, "b": {"b": 1}}
-        unique = _compute_unique_coverage(matrix, corpus, rules)
+        unique = _compute_unique_coverage(matrix, corpus_sizes, rules)
         assert unique["a"] == 1
         assert unique["b"] == 1
 
     def test_fully_overlapped(self):
         rules = [_make_rule("specific", "x"), _make_rule("broad", "y")]
-        corpus = [
-            CorpusEntry(text="x1", source_rule="specific"),
-            CorpusEntry(text="x2", source_rule="specific"),
-        ]
+        corpus_sizes = {"specific": 2, "broad": 5}
         # broad matches all of specific's corpus
         matrix = {
             "specific": {"specific": 2},
             "broad": {"specific": 2, "broad": 5},
         }
-        unique = _compute_unique_coverage(matrix, corpus, rules)
+        unique = _compute_unique_coverage(matrix, corpus_sizes, rules)
         assert unique["specific"] == 0  # broad covers everything
 
 
