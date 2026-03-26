@@ -1,0 +1,48 @@
+rules:
+  - id: aws-access-key-id
+    pattern-regex: (?:^|[^A-Za-z0-9/+=])AKIA[0-9A-Z]{16}(?:$|[^A-Za-z0-9/+=])
+    message: AWS Access Key ID detected.
+    languages:
+      - generic
+    severity: ERROR
+    metadata:
+      category: security
+      technology:
+        - aws
+      confidence: HIGH
+
+  - id: generic-api-key
+    pattern-regex: (?i)(?:api[_-]?key|apikey)\s*[:=]\s*['"][a-zA-Z0-9_\-]{20,}['"]
+    message: Possible API key assignment.
+    languages:
+      - generic
+    severity: WARNING
+    metadata:
+      category: security
+      confidence: MEDIUM
+
+  - id: private-key-pem
+    pattern-regex: "-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"
+    message: Private key PEM block detected.
+    languages:
+      - generic
+    severity: ERROR
+    metadata:
+      category: security
+      confidence: HIGH
+
+  - id: hardcoded-password
+    patterns:
+      - pattern-regex: "password\\s*=\\s*[\"'][^\"']+[\"']"
+      - pattern-not-regex: "password\\s*=\\s*[\"'](test|example|changeme)[\"']"
+    message: Hardcoded password detected.
+    languages:
+      - generic
+    severity: WARNING
+
+  - id: ast-only-rule
+    pattern: print(...)
+    message: Use logging instead of print.
+    languages:
+      - python
+    severity: INFO

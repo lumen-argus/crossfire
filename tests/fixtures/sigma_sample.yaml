@@ -1,0 +1,18 @@
+title: Suspicious PowerShell Download
+id: e6c54c94-c4b5-4b5b-b5b5-c4c5b5b5b5b5
+status: experimental
+description: Detects suspicious PowerShell download cradles
+level: high
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        CommandLine|re:
+            - 'Invoke-WebRequest.*-OutFile'
+            - 'wget\s+https?://.*-O\s+'
+            - 'curl.*-o\s+.*\.exe'
+    condition: selection
+tags:
+    - attack.execution
+    - attack.t1059.001

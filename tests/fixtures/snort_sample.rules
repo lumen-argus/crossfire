@@ -1,0 +1,6 @@
+# Snort/Suricata sample rules for testing
+alert tcp $HOME_NET any -> $EXTERNAL_NET any (msg:"Possible AWS Key Exfiltration"; pcre:"/AKIA[A-Z0-9]{16}/"; sid:1000001; classtype:policy-violation; priority:1;)
+alert http $HOME_NET any -> $EXTERNAL_NET any (msg:"SQL Injection Attempt"; content:"SELECT"; pcre:"/(?:SELECT|INSERT|UPDATE|DELETE).*(?:FROM|INTO|SET)\s/i"; sid:1000002; classtype:web-application-attack; priority:2;)
+alert tcp any any -> any any (msg:"Reverse Shell Detection"; pcre:"/bash\s+-i\s+>&\s*\/dev\/tcp\//"; pcre:"/nc(at)?\s+-e\s+\/bin\/(sh|bash)/"; sid:1000003; classtype:trojan-activity; priority:1;)
+# This rule has no pcre — should be skipped
+alert tcp $HOME_NET any -> $EXTERNAL_NET 443 (msg:"HTTPS Traffic"; content:"TLS"; sid:1000004;)

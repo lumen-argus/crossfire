@@ -46,6 +46,10 @@ Pipeline: Load → Validate (fail-fast) → Generate corpus → Cross-evaluate �
 - `logging.py` — Structured logging (text + JSON formats)
 - `plugins/` — Plugin system with RuleAdapter protocol and entry_point discovery
 - `plugins/gitleaks.py` — GitLeaks `.gitleaks.toml` adapter (id→name, regex→pattern, severity inference from entropy/keywords)
+- `plugins/semgrep.py` — Semgrep YAML adapter (extracts pattern-regex from rules, patterns, pattern-either)
+- `plugins/yara.py` — YARA `.yar` adapter (extracts regex strings from strings: section, preserves modifiers)
+- `plugins/sigma.py` — Sigma YAML adapter (extracts |re modifier patterns from detection block)
+- `plugins/snort.py` — Snort/Suricata `.rules` adapter (extracts pcre patterns, maps priority→severity)
 
 ## Key Design Decisions
 

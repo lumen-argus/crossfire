@@ -94,4 +94,13 @@ def _discover_external_adapters() -> None:
 def _register_builtin_adapters() -> None:
     """Register built-in adapters."""
     from crossfire.plugins.gitleaks import GitleaksAdapter
+    from crossfire.plugins.semgrep import SemgrepAdapter
+    from crossfire.plugins.sigma import SigmaAdapter
+    from crossfire.plugins.snort import SnortAdapter
+    from crossfire.plugins.yara import YaraAdapter
+
     register_adapter(GitleaksAdapter())
+    register_adapter(SemgrepAdapter())
+    register_adapter(SigmaAdapter())
+    register_adapter(YaraAdapter())
+    register_adapter(SnortAdapter())
