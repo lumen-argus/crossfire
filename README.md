@@ -1,11 +1,55 @@
 # Crossfire
 
-Regex rule overlap analyzer for DLP, secret scanning, SAST, and IDS tools.
+**Find duplicate and overlapping regex rules before they create duplicate alerts.**
 
-Crossfire detects duplicate, subset, and overlapping rules across detection
-toolsets using corpus-based analysis. No existing tool does this — structural
-regex analysis can't handle real-world patterns, and secret scanners only
-deduplicate at the output level.
+If you maintain detection rules for secret scanning, DLP, SAST, YARA, or IDS — you probably have rules that fire on the same input. Crossfire finds them.
+
+```
+$ crossfire scan my_rules.json
+
+========================================================================
+  Crossfire Analysis Report
+  Rules: 142 from 1 file(s) | Corpus: 4,260 strings | Time: 3.2s
+========================================================================
+
+  Duplicates (3 pairs)
+  Rule A                    Rule B                     Jaccard Recommendation
+  aws_key_v1                aws_key_v2                   1.00      Keep A
+  slack_hook                slack_webhook_url            0.94      Keep A
+  npm_token                 npm_auth_token               1.00      Keep A
+
+  Subsets (5 pairs)
+  Subset Rule               Superset Rule               A->B %
+  stripe_sk_live            generic_secret                 98%
+  github_pat_v2             github_token                  100%
+
+  Quality Insights
+  Broad patterns (2):
+    generic_secret           overlaps with 15 rules
+    email                    overlaps with 27 rules
+
+  Summary: Drop 7 rules, review 3, 2 broad patterns
+```
+
+## The Problem
+
+Detection rule sets grow over time. Different team members add rules independently. You merge rules from upstream projects. Eventually:
+
+- Multiple rules match the same secret (duplicate findings)
+- Broad rules like `generic_secret` silently cover what specific rules already catch
+- Nobody knows which rules to remove without breaking coverage
+
+**No existing tool solves this.** Regex equivalence is undecidable for real-world patterns (anchors, lookahead, backreferences). YARA dedup tools only find exact matches. Secret scanners handle duplicates at the output level — too late.
+
+## How Crossfire Works
+
+Crossfire uses a **corpus-based approach**: generate synthetic strings from each rule's regex, test every rule against every string, and measure overlap empirically.
+
+```
+Load rules → Validate regexes → Generate test strings → Cross-evaluate → Classify → Report
+```
+
+This handles any regex feature Python supports — anchors, lookahead, backreferences, Unicode. No structural analysis limitations.
 
 ## Install
 
@@ -13,65 +57,151 @@ deduplicate at the output level.
 pip install crossfire
 ```
 
-## Quick Start
+Requires Python 3.10+. No heavy dependencies.
+
+## Commands
+
+### Scan — find duplicates within a file
 
 ```bash
-# Check a single file for internal duplicates
 crossfire scan rules.json
-
-# Compare two rule sets for cross-file overlap
-crossfire compare community.json pro.json
-
-# Validate regex syntax
-crossfire validate rules.json
-
-# Test rules against real data
-crossfire evaluate rules.json --corpus data.jsonl
-
-# Test rules against git history
-crossfire evaluate-git rules.json --repo /path/to/repo
-
-# Compare rule behavior across two datasets
-crossfire diff rules.json --corpus-a prod.jsonl --corpus-b staging.jsonl
 ```
+
+"Do I have redundant rules?"
+
+### Compare — find overlaps between files
+
+```bash
+crossfire compare community.json pro.json vendor_rules.json
+```
+
+"Which rules overlap across my rule sets?"
+
+### Validate — check regex syntax
+
+```bash
+crossfire validate rules.json
+```
+
+"Are all my regexes valid?" Fast — no corpus generation, just syntax check.
+
+### Evaluate — test rules against real data
+
+```bash
+# Test against a JSONL corpus
+crossfire evaluate rules.json --corpus chat_logs.jsonl
+
+# Test against git history
+crossfire evaluate-git rules.json --repo /path/to/repo --max-commits 500
+```
+
+"Which rules actually fire on real data? Which rules co-fire on the same input?"
+
+If your corpus has labels, Crossfire computes precision, recall, and F1 per rule:
+
+```jsonl
+{"text": "AKIAIOSFODNN7EXAMPLE", "label": "aws_key"}
+{"text": "xoxb-123-456-abc", "label": "slack_token"}
+```
+
+### Diff — compare rule behavior across environments
+
+```bash
+crossfire diff rules.json --corpus-a production.jsonl --corpus-b staging.jsonl
+```
+
+"Do my rules behave differently across environments?" Flags rules with >5% match rate divergence.
 
 ## Supported Formats
 
-Crossfire auto-detects format by file content:
+Crossfire auto-detects format by file content — just pass the file:
+
+```bash
+crossfire compare gitleaks.toml semgrep.yaml yara_rules.yar community.json
+```
 
 | Format | Extensions | Tool |
 |--------|-----------|------|
-| JSON | `.json` | Any (Crossfire native, lumen-argus, custom) |
+| JSON | `.json` | Any (native format, custom rules) |
 | YAML | `.yaml`, `.yml` | Any |
-| CSV | `.csv` | Any |
+| CSV | `.csv` | Any (`name` and `pattern` columns) |
 | GitLeaks | `.toml` | [GitLeaks](https://github.com/gitleaks/gitleaks) |
-| Semgrep | `.yaml` | [Semgrep](https://semgrep.dev) (pattern-regex rules) |
-| YARA | `.yar`, `.yara` | [YARA](https://virustotal.github.io/yara/) |
-| Sigma | `.yaml` | [Sigma](https://sigmahq.io) (|re modifier fields) |
-| Snort | `.rules` | [Snort](https://www.snort.org) / [Suricata](https://suricata.io) (pcre patterns) |
+| Semgrep | `.yaml` | [Semgrep](https://semgrep.dev) (`pattern-regex` rules) |
+| YARA | `.yar`, `.yara` | [YARA](https://virustotal.github.io/yara/) (regex strings) |
+| Sigma | `.yaml` | [Sigma](https://sigmahq.io) (`\|re` modifier fields) |
+| Snort/Suricata | `.rules` | [Snort](https://www.snort.org) / [Suricata](https://suricata.io) (`pcre` patterns) |
 
-Cross-tool comparison just works:
+### Custom field names
+
+If your rules use different field names:
 
 ```bash
-crossfire compare gitleaks.toml semgrep.yaml yara_rules.yar
+crossfire scan rules.json --field-mapping '{"name": "rule_id", "pattern": "regex"}'
 ```
 
-## How It Works
-
-1. **Load** rules from any supported format
-2. **Validate** regexes (fail-fast by default)
-3. **Generate** synthetic test strings from each regex pattern
-4. **Cross-evaluate** every rule against every string
-5. **Classify** relationships: duplicate, subset, overlap, disjoint
-6. **Report** with quality insights, confidence intervals, and recommendations
+Default mappings: `name`/`id`/`rule_name` and `pattern`/`regex`/`regexp`.
 
 ## Output Formats
 
 ```bash
 crossfire scan rules.json --format table    # Human-readable (default)
-crossfire scan rules.json --format json     # Machine-readable (CI)
-crossfire scan rules.json --format csv      # Spreadsheet
+crossfire scan rules.json --format json     # Machine-readable for CI
+crossfire scan rules.json --format csv      # Spreadsheet-friendly
 crossfire scan rules.json --format summary  # One-line summary
+```
+
+JSON output includes confidence intervals (95% Wilson score CI) on every overlap measurement and per-rule quality metrics.
+
+## Relationship Types
+
+Crossfire classifies every rule pair:
+
+| Relationship | Meaning | Example |
+|-------------|---------|---------|
+| **Duplicate** | Both rules match >80% of each other's test strings | `aws_key_v1` and `aws_key_v2` |
+| **Subset** | Rule A matches everything B matches, but not vice versa | `stripe_sk_live` is a subset of `generic_secret` |
+| **Overlap** | Partial co-firing (20-80%) — worth investigating | `github_token` and `generic_api_key` |
+| **Disjoint** | No meaningful overlap | `aws_key` and `email_address` |
+
+### Recommendations
+
+- **Duplicate**: drop the lower-priority rule (or review if equal priority)
+- **Subset**: the superset rule covers everything — consider if the specific rule adds value
+- **Overlap**: review manually — may be intentional
+
+Priority is determined by file order (first file = highest) or explicit `--priority`:
+
+```bash
+crossfire compare --priority "curated.json=100,community.json=80,generated.json=50" \
+  curated.json community.json generated.json
+```
+
+## Quality Insights
+
+Beyond pairwise overlap, Crossfire assesses each rule individually:
+
+- **Specificity**: does this rule match random strings? Low specificity = overly broad
+- **Unique coverage**: do any test strings match *only* this rule? Zero = fully redundant
+- **Broad pattern detection**: rules overlapping with 5+ others are flagged
+- **Pattern complexity**: regex AST node count (informational)
+
+## Fail-Fast Validation
+
+By default, Crossfire fails immediately on the first invalid regex:
+
+```
+$ crossfire scan rules.json
+ERROR: Rule 'broken_rule' has invalid regex: unbalanced parenthesis at position 12
+  Pattern: [a-z(+
+  File: rules.json, entry 47
+
+Fix the pattern and retry. Use --skip-invalid to analyze remaining rules anyway.
+```
+
+Use `--skip-invalid` to continue despite broken rules (for third-party rule sets you can't fix):
+
+```bash
+crossfire scan vendor_rules.json --skip-invalid
 ```
 
 ## CI Integration
@@ -98,25 +228,36 @@ repos:
       - id: crossfire-validate
 ```
 
-### CLI in CI Pipeline
+### Any CI Pipeline
 
 ```bash
 pip install crossfire
 crossfire compare rules/*.json --fail-on-duplicate --format summary
 ```
 
-## Key Features
+Exit codes: `0` = clean, `1` = duplicates found (`--fail-on-duplicate`), `2` = input error, `3` = runtime error.
 
-- **Fail-fast validation**: Invalid regex stops immediately with a clear error. Use `--skip-invalid` for lenient mode.
-- **Confidence intervals**: Wilson score 95% CI on all overlap measurements. Warns when sample size is too low.
-- **Quality scoring**: Per-rule specificity, false positive potential, unique coverage, pattern complexity.
-- **Broad pattern detection**: Flags "umbrella" rules that overlap with many others.
-- **Reproducible**: `--seed 42` produces identical results across runs.
-- **Observable**: Structured logging (`--log-level debug --log-file crossfire.log`).
+## Options Reference
 
-## Configuration
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--threshold` | `0.8` | Overlap % to classify as duplicate (0.0-1.0) |
+| `--samples` | `50` | Test strings generated per rule |
+| `--seed` | None | Random seed for reproducible results |
+| `--workers` | auto | Parallel evaluation workers |
+| `--format` | `table` | Output: `table`, `json`, `csv`, `summary` |
+| `--output` | stdout | Write report to file |
+| `--skip-invalid` | off | Skip broken regexes instead of failing |
+| `--fail-on-duplicate` | off | Exit code 1 if duplicates found |
+| `--partition-by` | None | Only compare rules with same field value (e.g., `detector`) |
+| `--priority` | by file order | `file.json=100` priority mapping |
+| `--log-level` | `warning` | `debug`, `info`, `warning`, `error` |
+| `--log-file` | None | Write logs to file |
+| `--log-format` | `text` | `text` or `json` (structured) |
 
-All CLI flags can be set in a `crossfire.yaml` config file:
+## Configuration File
+
+All options can be set in `crossfire.yaml`:
 
 ```yaml
 threshold: 0.8
@@ -127,6 +268,20 @@ format: json
 fail_on_duplicate: true
 log_level: warning
 ```
+
+## Performance
+
+Tested on 1,722 real detection rules (54 community + 1,668 commercial):
+
+| Step | Time |
+|------|------|
+| Load + validate | <1s |
+| Generate corpus (30 samples/rule) | ~26s |
+| Cross-evaluate (72M regex matches) | ~3s |
+| Classify + quality assessment | <1s |
+| **Total** | **~30s** |
+
+Results: 22 duplicates, 249 subsets, 82 overlaps, 18 clusters, 31 broad patterns, 240 fully redundant rules.
 
 ## License
 
