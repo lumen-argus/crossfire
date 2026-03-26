@@ -20,22 +20,29 @@ EXIT_INPUT_ERROR = 2
 EXIT_RUNTIME_ERROR = 3
 
 
+def _logging_options(f: object) -> object:
+    """Shared logging options for all commands."""
+    f = click.option("--log-format", default="text", type=click.Choice(["text", "json"]),
+        help="Log format.")(f)
+    f = click.option("--log-file", default=None, type=click.Path(),
+        help="Write logs to file.")(f)
+    f = click.option("--log-level", default="warning", type=click.Choice(
+        ["debug", "info", "warning", "error"], case_sensitive=False),
+        help="Logging verbosity.")(f)
+    return f
+
+
+def _init_logging(log_level: str, log_file: Optional[str], log_format: str) -> None:
+    """Initialize logging from command options."""
+    setup_logging(level=log_level, log_file=log_file, log_format=log_format)
+
+
 @click.group()
 @click.version_option(version=crossfire.__version__, prog_name="crossfire")
-@click.option("--log-level", default="warning", type=click.Choice(
-    ["debug", "info", "warning", "error"], case_sensitive=False),
-    help="Logging verbosity.")
-@click.option("--log-file", default=None, type=click.Path(), help="Write logs to file.")
-@click.option("--log-format", default="text", type=click.Choice(["text", "json"]),
-    help="Log format.")
-@click.pass_context
-def main(ctx: click.Context, log_level: str, log_file: Optional[str], log_format: str) -> None:
+@_logging_options
+def main(log_level: str, log_file: Optional[str], log_format: str) -> None:
     """Crossfire — Regex rule overlap analyzer."""
-    ctx.ensure_object(dict)
-    ctx.obj["log_level"] = log_level
-    ctx.obj["log_file"] = log_file
-    ctx.obj["log_format"] = log_format
-    setup_logging(level=log_level, log_file=log_file, log_format=log_format)
+    _init_logging(log_level, log_file, log_format)
 
 
 @main.command()
@@ -52,6 +59,7 @@ def main(ctx: click.Context, log_level: str, log_file: Optional[str], log_format
 @click.option("--fail-on-duplicate", is_flag=True, help="Exit code 1 if duplicates found.")
 @click.option("--partition-by", default=None, type=str,
     help="Partition rules by field (e.g., 'detector').")
+@_logging_options
 def scan(
     files: tuple[str, ...],
     threshold: float,
@@ -64,12 +72,16 @@ def scan(
     skip_invalid: bool,
     fail_on_duplicate: bool,
     partition_by: Optional[str],
+    log_level: str,
+    log_file: Optional[str],
+    log_format: str,
 ) -> None:
     """Find overlapping rules within one or more files.
 
     Loads rules, generates synthetic test strings, cross-evaluates all rules
     against all strings, and reports duplicates, subsets, and overlaps.
     """
+    _init_logging(log_level, log_file, log_format)
     _run_analysis(
         list(files), threshold=threshold, samples=samples,
         negative_samples=negative_samples, fmt=fmt, output=output,
@@ -94,6 +106,7 @@ def scan(
     help="Partition rules by field (e.g., 'detector').")
 @click.option("--priority", default=None, type=str,
     help="Priority mapping (e.g., 'curated.json=100,community.json=80').")
+@_logging_options
 def compare(
     files: tuple[str, ...],
     threshold: float,
@@ -107,12 +120,16 @@ def compare(
     fail_on_duplicate: bool,
     partition_by: Optional[str],
     priority: Optional[str],
+    log_level: str,
+    log_file: Optional[str],
+    log_format: str,
 ) -> None:
     """Compare two or more rule files for cross-file overlap.
 
     Loads rules from multiple files, generates synthetic test strings,
     cross-evaluates, and reports which rules overlap between files.
     """
+    _init_logging(log_level, log_file, log_format)
     priorities = _parse_priorities(priority) if priority else None
 
     _run_analysis(
@@ -127,12 +144,17 @@ def compare(
 @main.command()
 @click.argument("files", nargs=-1, required=True, type=click.Path(exists=True))
 @click.option("--skip-invalid", is_flag=True, help="Skip invalid rules instead of failing.")
-def validate(files: tuple[str, ...], skip_invalid: bool) -> None:
+@_logging_options
+def validate(
+    files: tuple[str, ...], skip_invalid: bool,
+    log_level: str, log_file: Optional[str], log_format: str,
+) -> None:
     """Validate regex patterns in rule files.
 
     Checks that all rules have valid names, non-empty patterns, and
     compilable regexes. Fails on first error unless --skip-invalid is set.
     """
+    _init_logging(log_level, log_file, log_format)
     from crossfire.loader import load_rules
 
     total = 0
@@ -154,14 +176,19 @@ def validate(files: tuple[str, ...], skip_invalid: bool) -> None:
 @click.option("--samples", default=50, type=int, help="Corpus strings per rule.")
 @click.option("--seed", default=None, type=int, help="Random seed for reproducibility.")
 @click.option("--skip-invalid", is_flag=True, help="Skip invalid rules instead of failing.")
+@_logging_options
 def generate_corpus(
     files: tuple[str, ...],
     output: str,
     samples: int,
     seed: Optional[int],
     skip_invalid: bool,
+    log_level: str,
+    log_file: Optional[str],
+    log_format: str,
 ) -> None:
     """Generate corpus strings from rules (for debugging or external use)."""
+    _init_logging(log_level, log_file, log_format)
     import json
     from crossfire.generator import CorpusGenerator
     from crossfire.loader import load_multiple
@@ -203,6 +230,7 @@ def generate_corpus(
 @click.option("--skip-invalid", is_flag=True, help="Skip invalid rules instead of failing.")
 @click.option("--redact-samples", is_flag=True,
     help="Don't include matched text in debug logs.")
+@_logging_options
 def evaluate_cmd(
     rules_files: tuple[str, ...],
     corpus: str,
@@ -212,12 +240,16 @@ def evaluate_cmd(
     output: Optional[str],
     skip_invalid: bool,
     redact_samples: bool,
+    log_level: str,
+    log_file: Optional[str],
+    log_format: str,
 ) -> None:
     """Evaluate rules against a real-world corpus.
 
     Tests which rules fire on real data. If the corpus has labels,
     computes precision, recall, and F1 per rule.
     """
+    _init_logging(log_level, log_file, log_format)
     from crossfire.corpus import evaluate_corpus, load_corpus_jsonl
 
     rules = _load_rules_or_exit(rules_files, skip_invalid)
@@ -243,6 +275,7 @@ def evaluate_cmd(
     ["json", "table", "summary"]), help="Output format.")
 @click.option("--output", "-o", default=None, type=click.Path(), help="Output file path.")
 @click.option("--skip-invalid", is_flag=True, help="Skip invalid rules instead of failing.")
+@_logging_options
 def evaluate_git_cmd(
     rules_files: tuple[str, ...],
     repo: str,
@@ -250,12 +283,16 @@ def evaluate_git_cmd(
     fmt: str,
     output: Optional[str],
     skip_invalid: bool,
+    log_level: str,
+    log_file: Optional[str],
+    log_format: str,
 ) -> None:
     """Evaluate rules against git repository history.
 
     Extracts added/modified lines from recent commits and tests
     which rules match.
     """
+    _init_logging(log_level, log_file, log_format)
     from crossfire.corpus import evaluate_corpus, load_corpus_git
 
     rules = _load_rules_or_exit(rules_files, skip_invalid)
@@ -281,6 +318,7 @@ def evaluate_git_cmd(
     ["json", "table"]), help="Output format.")
 @click.option("--output", "-o", default=None, type=click.Path(), help="Output file path.")
 @click.option("--skip-invalid", is_flag=True, help="Skip invalid rules instead of failing.")
+@_logging_options
 def diff_cmd(
     rules_files: tuple[str, ...],
     corpus_a: str,
@@ -289,12 +327,16 @@ def diff_cmd(
     fmt: str,
     output: Optional[str],
     skip_invalid: bool,
+    log_level: str,
+    log_file: Optional[str],
+    log_format: str,
 ) -> None:
     """Compare rule behavior across two corpora (coverage drift).
 
     For each rule, computes match rate in each corpus and flags rules
     with >5% divergence.
     """
+    _init_logging(log_level, log_file, log_format)
     import json
     from crossfire.corpus import diff_corpora, load_corpus_jsonl
     rules = _load_rules_or_exit(rules_files, skip_invalid)
