@@ -50,15 +50,14 @@ class SigmaAdapter:
 
     def load(self, path: str) -> list[dict[str, object]]:
         with open(path) as f:
-            data = yaml.safe_load(f)
+            documents = list(yaml.safe_load_all(f))
 
-        if not isinstance(data, dict):
-            log.warning("Invalid Sigma rule format in %s", path)
-            return []
-
-        # Sigma files can contain a single rule (dict) or multiple (list via ---separators)
-        # yaml.safe_load returns the first document only
-        results = self._convert_rule(data, path)
+        results: list[dict[str, object]] = []
+        for data in documents:
+            if not isinstance(data, dict):
+                continue
+            converted = self._convert_rule(data, path)
+            results.extend(converted)
 
         if results:
             log.info("Sigma adapter: loaded %d regex patterns from %s", len(results), path)
@@ -126,7 +125,8 @@ class SigmaAdapter:
     ) -> list[tuple[str, str]]:
         """Extract regex patterns from detection block.
 
-        Looks for field names ending with |re modifier.
+        Looks for field names with |re modifier (must end with |re or
+        have |re as one of the chained modifiers like |utf16|re).
         Returns list of (field_name, regex_pattern).
         """
         regexes: list[tuple[str, str]] = []
@@ -136,24 +136,25 @@ class SigmaAdapter:
                 continue
 
             if isinstance(value, dict):
-                for field, patterns in value.items():
-                    if "|re" in field:
-                        base_field = field.split("|")[0]
-                        if isinstance(patterns, list):
-                            for p in patterns:
-                                regexes.append((base_field, str(p)))
-                        elif isinstance(patterns, str):
-                            regexes.append((base_field, patterns))
+                self._extract_re_fields(value, regexes)
             elif isinstance(value, list):
                 for item in value:
                     if isinstance(item, dict):
-                        for field, patterns in item.items():
-                            if "|re" in field:
-                                base_field = field.split("|")[0]
-                                if isinstance(patterns, list):
-                                    for p in patterns:
-                                        regexes.append((base_field, str(p)))
-                                elif isinstance(patterns, str):
-                                    regexes.append((base_field, patterns))
+                        self._extract_re_fields(item, regexes)
 
         return regexes
+
+    def _extract_re_fields(
+        self, mapping: dict[str, Any], regexes: list[tuple[str, str]],
+    ) -> None:
+        """Extract |re modifier fields from a detection mapping."""
+        for field, patterns in mapping.items():
+            modifiers = field.split("|")[1:]
+            if "re" not in modifiers:
+                continue
+            base_field = field.split("|")[0]
+            if isinstance(patterns, list):
+                for p in patterns:
+                    regexes.append((base_field, str(p)))
+            elif isinstance(patterns, str):
+                regexes.append((base_field, patterns))

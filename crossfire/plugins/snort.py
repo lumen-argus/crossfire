@@ -122,7 +122,7 @@ class SnortAdapter:
                 "pattern": pattern,
                 "detector": "ids",
                 "severity": severity,
-                "tags": tags,
+                "tags": list(tags),
                 "metadata": pcre_meta,
             })
 

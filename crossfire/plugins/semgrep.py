@@ -52,8 +52,13 @@ class SemgrepAdapter:
             log.warning("No 'rules' key found in %s", path)
             return []
 
+        rules_list = data["rules"]
+        if not isinstance(rules_list, list):
+            log.warning("'rules' is not a list in %s", path)
+            return []
+
         results: list[dict[str, object]] = []
-        for idx, rule in enumerate(data["rules"], start=1):
+        for idx, rule in enumerate(rules_list, start=1):
             converted = self._convert_rule(rule, idx, path)
             results.extend(converted)
 

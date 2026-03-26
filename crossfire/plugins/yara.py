@@ -48,10 +48,10 @@ class YaraAdapter:
 
     def load(self, path: str) -> list[dict[str, object]]:
         with open(path, "r", errors="replace") as f:
-            content = f.read()
+            lines = f.readlines()
 
         results: list[dict[str, object]] = []
-        rules = self._parse_rules(content, path)
+        rules = self._parse_rules(lines, path)
 
         for rule_name, meta, regex_strings in rules:
             for string_id, pattern, modifiers in regex_strings:
@@ -81,15 +81,14 @@ class YaraAdapter:
         return results
 
     def _parse_rules(
-        self, content: str, path: str,
+        self, lines: list[str], path: str,
     ) -> list[tuple[str, dict[str, Any], list[tuple[str, str, str]]]]:
-        """Parse YARA rules from file content.
+        """Parse YARA rules from file lines.
 
         Returns list of (rule_name, metadata_dict, regex_strings).
         regex_strings is list of (string_id, pattern, modifiers).
         """
         rules: list[tuple[str, dict[str, Any], list[tuple[str, str, str]]]] = []
-        lines = content.splitlines()
 
         current_rule = ""
         current_meta: dict[str, Any] = {}
@@ -111,19 +110,26 @@ class YaraAdapter:
                     continue
 
             if "/*" in stripped:
-                before = stripped[:stripped.index("/*")].strip()
+                idx = stripped.index("/*")
+                before = stripped[:idx].strip()
+                after = stripped[idx + 2:]
                 if before:
+                    # Content before comment — use it, check if comment closes
                     stripped = before
+                    if "*/" not in after:
+                        in_block_comment = True
                 else:
-                    if "*/" not in stripped[stripped.index("/*") + 2:]:
+                    if "*/" not in after:
                         in_block_comment = True
                     continue
 
-            # Skip line comments
-            if stripped.startswith("//"):
-                continue
-            if "//" in stripped:
-                stripped = stripped[:stripped.index("//")].strip()
+            # Skip line comments — but not inside regex literals (strings section)
+            # In the strings section, // can appear in regex patterns like /https?:\/\//
+            if section != "strings":
+                if stripped.startswith("//"):
+                    continue
+                if "//" in stripped:
+                    stripped = stripped[:stripped.index("//")].strip()
 
             # Skip empty lines, imports, includes
             if not stripped or stripped.startswith("import ") or stripped.startswith("include "):
