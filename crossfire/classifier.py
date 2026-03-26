@@ -6,6 +6,7 @@ import logging
 from collections import defaultdict
 from typing import Optional
 
+from crossfire.confidence import ci_width, wilson_interval
 from crossfire.evaluator import MatchMatrix
 from crossfire.models import ClusterInfo, OverlapResult, Rule
 
@@ -125,6 +126,20 @@ class Classifier:
             jaccard, relationship,
         )
 
+        # Compute confidence intervals
+        ci_ab = wilson_interval(a_matches_b, size_b)
+        ci_ba = wilson_interval(b_matches_a, size_a)
+
+        # Warn if CI is too wide for reliable classification
+        width_ab = ci_width(a_matches_b, size_b)
+        width_ba = ci_width(b_matches_a, size_a)
+        if width_ab > 0.3 or width_ba > 0.3:
+            log.warning(
+                "Pair (%s, %s): wide CI (a->b: %.2f, b->a: %.2f) — "
+                "increase --samples for more reliable results",
+                name_a, name_b, width_ab, width_ba,
+            )
+
         return OverlapResult(
             rule_a=name_a,
             rule_b=name_b,
@@ -140,6 +155,8 @@ class Classifier:
             relationship=relationship,
             recommendation=recommendation,
             reason=reason,
+            ci_a_to_b=ci_ab,
+            ci_b_to_a=ci_ba,
         )
 
     def _determine_relationship(

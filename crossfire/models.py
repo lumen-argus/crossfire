@@ -48,6 +48,8 @@ class OverlapResult:
     relationship: str  # duplicate, subset, superset, overlap, disjoint
     recommendation: str  # keep_a, keep_b, keep_both, review
     reason: str = ""
+    ci_a_to_b: tuple[float, float] | None = None  # 95% CI for overlap_a_to_b
+    ci_b_to_a: tuple[float, float] | None = None  # 95% CI for overlap_b_to_a
 
 
 @dataclass
@@ -74,4 +76,5 @@ class AnalysisReport:
     subsets: list[OverlapResult]
     overlaps: list[OverlapResult]
     clusters: list[ClusterInfo]
-    summary: dict[str, object]
+    quality: dict[str, object] | None = None  # Phase 2: quality assessment summary
+    summary: dict[str, object] = field(default_factory=dict)

@@ -35,9 +35,11 @@ Pipeline: Load → Validate (fail-fast) → Generate corpus → Cross-evaluate �
 - `loader.py` — Format-agnostic rule loading (JSON/YAML/CSV/TOML) with fail-fast validation
 - `generator.py` — Corpus generation via rstr + fallback, per-rule timeout, negative samples
 - `evaluator.py` — Parallel cross-rule regex evaluation, NxN match matrix
-- `classifier.py` — Relationship classification (duplicate/subset/superset/overlap/disjoint), clustering
-- `reporter.py` — Output rendering (JSON/table/CSV/summary)
-- `analyzer.py` — Orchestrator coordinating the full pipeline
+- `classifier.py` — Relationship classification (duplicate/subset/superset/overlap/disjoint), clustering, Wilson score CIs
+- `confidence.py` — Wilson score confidence intervals for overlap proportions
+- `quality.py` — Per-rule quality scoring: specificity, false positive potential, unique coverage, broad pattern detection, pattern complexity (via regex AST)
+- `reporter.py` — Output rendering (JSON/table/CSV/summary) with quality insights
+- `analyzer.py` — Orchestrator coordinating the full pipeline including quality assessment
 - `cli.py` — Click CLI with scan, compare, validate, generate-corpus commands
 - `errors.py` — CrossfireError, ValidationError, LoadError, GenerationError
 - `logging.py` — Structured logging (text + JSON formats)

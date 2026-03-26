@@ -94,6 +94,41 @@ def render_table(report: AnalysisReport, output: TextIO) -> None:
             output.write(f"    Keep: {c.keep} ({c.reason})\n")
         output.write("\n")
 
+    # Quality insights
+    if report.quality:
+        q = report.quality
+        broad = q.get("broad_patterns", [])
+        low_spec = q.get("low_specificity", [])
+        redundant = q.get("fully_redundant", [])
+        has_quality = broad or low_spec or redundant
+
+        if has_quality:
+            output.write(f"  Quality Insights\n")
+            output.write(f"  {'-' * 68}\n")
+            if broad:
+                output.write(f"  Broad patterns ({len(broad)}):\n")
+                for bp in broad[:10]:
+                    output.write(
+                        f"    {bp['name']:<30} overlaps with {bp['overlap_count']} rules\n"  # type: ignore[index]
+                    )
+                if len(broad) > 10:
+                    output.write(f"    ... and {len(broad) - 10} more\n")
+            if low_spec:
+                output.write(f"  Low specificity ({len(low_spec)} rules match >90% of random strings):\n")
+                for ls in low_spec[:5]:
+                    output.write(
+                        f"    {ls['name']:<30} specificity: {ls['specificity']:.2f}\n"  # type: ignore[index]
+                    )
+                if len(low_spec) > 5:
+                    output.write(f"    ... and {len(low_spec) - 5} more\n")
+            if redundant:
+                output.write(f"  Fully redundant ({len(redundant)} rules with zero unique coverage):\n")
+                for rd in redundant[:5]:
+                    output.write(f"    {rd['name']}\n")  # type: ignore[index]
+                if len(redundant) > 5:
+                    output.write(f"    ... and {len(redundant) - 5} more\n")
+            output.write("\n")
+
     # Summary
     output.write(f"  Summary: ")
     parts = []
@@ -101,6 +136,10 @@ def render_table(report: AnalysisReport, output: TextIO) -> None:
         parts.append(f"Drop {s.get('rules_recommended_drop', 0)} rules")
     if s.get("rules_recommended_review"):
         parts.append(f"review {s['rules_recommended_review']}")
+    if s.get("broad_patterns"):
+        parts.append(f"{s['broad_patterns']} broad patterns")
+    if s.get("fully_redundant_rules"):
+        parts.append(f"{s['fully_redundant_rules']} fully redundant")
     if not parts:
         parts.append("No duplicates or overlaps found")
     output.write(", ".join(parts))
@@ -141,6 +180,9 @@ def render_summary(report: AnalysisReport, output: TextIO) -> None:
     drop = s.get("rules_recommended_drop", 0)
     review = s.get("rules_recommended_review", 0)
 
+    broad = s.get("broad_patterns", 0)
+    redundant = s.get("fully_redundant_rules", 0)
+
     output.write(
         f"Analyzed {total} rules from {files} file(s). "
         f"Found {dups} duplicate pair(s), {subs} subset pair(s), "
@@ -148,10 +190,17 @@ def render_summary(report: AnalysisReport, output: TextIO) -> None:
     )
     if drop or review:
         output.write(
-            f"Recommendation: drop {drop} rule(s), review {review} rule(s)."
+            f"Recommendation: drop {drop} rule(s), review {review} rule(s). "
         )
     else:
-        output.write("No duplicates detected.")
+        output.write("No duplicates detected. ")
+    if broad or redundant:
+        parts = []
+        if broad:
+            parts.append(f"{broad} broad pattern(s)")
+        if redundant:
+            parts.append(f"{redundant} fully redundant rule(s)")
+        output.write(f"Quality: {', '.join(parts)}.")
     output.write("\n")
 
     log.info("Summary report rendered")
@@ -188,6 +237,7 @@ def _report_to_dict(report: AnalysisReport) -> dict:
             "overlaps": [asdict(r) for r in report.overlaps],
             "clusters": [asdict(c) for c in report.clusters],
         },
+        "quality": report.quality,
         "summary": report.summary,
     }
 

@@ -101,6 +101,13 @@ def analyze(
     )
     results, clusters = classifier.classify(matrix, rules, corpus_sizes)
 
+    # Step 5b: Quality assessment
+    from crossfire.quality import assess_quality
+    quality_report = assess_quality(
+        rules, corpus, matrix, corpus_sizes,
+        seed=seed,
+    )
+
     # Step 6: Build report
     duplicates = [r for r in results if r.relationship == "duplicate"]
     subsets = [r for r in results if r.relationship in ("subset", "superset")]
@@ -160,6 +167,21 @@ def analyze(
         subsets=subsets,
         overlaps=overlaps,
         clusters=clusters,
+        quality={
+            "broad_patterns": [
+                {"name": r.name, "source": r.source, "overlap_count": r.overlap_count}
+                for r in quality_report.broad_patterns
+            ],
+            "low_specificity": [
+                {"name": r.name, "source": r.source, "specificity": r.specificity}
+                for r in quality_report.low_specificity
+            ],
+            "fully_redundant": [
+                {"name": r.name, "source": r.source}
+                for r in quality_report.fully_redundant
+            ],
+            "summary": quality_report.summary,
+        },
         summary={
             "duplicate_pairs": len(duplicates),
             "subset_pairs": len(subsets),
@@ -167,6 +189,9 @@ def analyze(
             "clusters": len(clusters),
             "rules_recommended_drop": drop_count,
             "rules_recommended_review": review_count,
+            "broad_patterns": len(quality_report.broad_patterns),
+            "low_specificity_rules": len(quality_report.low_specificity),
+            "fully_redundant_rules": len(quality_report.fully_redundant),
             "analysis_duration_s": round(total_duration, 1),
         },
     )
