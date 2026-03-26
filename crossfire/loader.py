@@ -129,12 +129,20 @@ def load_rules(
     if not path.is_file():
         raise LoadError(f"Not a file: {path}")
 
-    fmt = _detect_format(path)
-    log.info("Loading rules from %s (format: %s)", path, fmt)
-
-    raw_entries = _LOADERS[fmt](path)
-    if not raw_entries:
-        raise LoadError(f"No rules found in {path}")
+    # Try plugin adapters first (e.g., GitLeaks TOML)
+    from crossfire.plugins import find_adapter
+    adapter = find_adapter(str(path))
+    if adapter:
+        log.info("Loading rules from %s (adapter: %s)", path, adapter.name)
+        raw_entries = adapter.load(str(path))
+        if not raw_entries:
+            raise LoadError(f"No rules found in {path}")
+    else:
+        fmt = _detect_format(path)
+        log.info("Loading rules from %s (format: %s)", path, fmt)
+        raw_entries = _LOADERS[fmt](path)
+        if not raw_entries:
+            raise LoadError(f"No rules found in {path}")
 
     # Build field lookup with custom mapping overrides
     name_fields = DEFAULT_NAME_FIELDS

@@ -44,6 +44,8 @@ Pipeline: Load → Validate (fail-fast) → Generate corpus → Cross-evaluate �
 - `cli.py` — Click CLI with scan, compare, validate, generate-corpus, evaluate, evaluate-git, diff commands
 - `errors.py` — CrossfireError, ValidationError, LoadError, GenerationError
 - `logging.py` — Structured logging (text + JSON formats)
+- `plugins/` — Plugin system with RuleAdapter protocol and entry_point discovery
+- `plugins/gitleaks.py` — GitLeaks `.gitleaks.toml` adapter (id→name, regex→pattern, severity inference from entropy/keywords)
 
 ## Key Design Decisions
 

@@ -1,0 +1,48 @@
+title = "Sample GitLeaks Config for Testing"
+
+[[rules]]
+id = "aws-access-token"
+description = "AWS access key ID"
+regex = '''\b((?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z2-7]{16})\b'''
+secretGroup = 1
+entropy = 3.5
+keywords = ["akia", "asia", "abia", "acca"]
+tags = ["aws", "cloud"]
+
+    [[rules.allowlists]]
+    description = "ignore example keys"
+    regexes = ['''.+EXAMPLE$''']
+
+[[rules]]
+id = "github-pat"
+description = "GitHub Personal Access Token"
+regex = '''ghp_[0-9a-zA-Z]{36}'''
+entropy = 3.0
+keywords = ["ghp_"]
+tags = ["github", "token"]
+
+[[rules]]
+id = "stripe-secret-key"
+description = "Stripe secret or restricted key"
+regex = '''\b((?:sk|rk)_(?:test|live|prod)_[a-zA-Z0-9]{10,99})\b'''
+secretGroup = 1
+entropy = 2.0
+keywords = ["sk_test", "sk_live", "sk_prod", "rk_test", "rk_live", "rk_prod"]
+tags = ["stripe", "payment"]
+
+[[rules]]
+id = "slack-webhook-url"
+description = "Slack incoming webhook URL"
+regex = '''(?:https?://)?hooks\.slack\.com/(?:services|workflows)/[A-Za-z0-9+/]{43,56}'''
+keywords = ["hooks.slack.com"]
+tags = ["slack", "webhook"]
+
+[[rules]]
+id = "generic-api-key"
+description = "Generic API key pattern"
+regex = '''(?i)(?:api[_-]?key|apikey)\s*[:=]\s*['\"]?([a-zA-Z0-9_\-]{20,64})['\"]?'''
+tags = ["generic"]
+
+[[allowlists]]
+description = "global: ignore test fixtures"
+paths = ['''tests/fixtures/.*''']
