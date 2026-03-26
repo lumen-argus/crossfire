@@ -435,10 +435,8 @@ def _evaluation_to_dict(report: object) -> dict:
     }
 
 
-def _render_diff_table(result: object, output: Optional[str]) -> None:
+def _render_diff_table(report: "DiffReport", output: Optional[str]) -> None:
     """Render differential analysis as a table."""
-    from crossfire.corpus import DiffReport
-    report: DiffReport = result  # type: ignore[assignment]
 
     click.echo(f"\n{'=' * 72}")
     click.echo(f"  Crossfire Differential Analysis")

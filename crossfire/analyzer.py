@@ -13,7 +13,7 @@ from crossfire.classifier import Classifier
 from crossfire.evaluator import Evaluator
 from crossfire.generator import CorpusGenerator
 from crossfire.loader import load_multiple, load_rules
-from crossfire.models import AnalysisReport, OverlapResult, Recommendation, Relationship
+from crossfire.models import AnalysisReport, Recommendation, Relationship
 
 log = logging.getLogger("crossfire.analyzer")
 

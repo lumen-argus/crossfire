@@ -7,9 +7,10 @@ import io
 import json
 import logging
 from dataclasses import asdict
+from enum import Enum
 from typing import TextIO
 
-from crossfire.models import AnalysisReport, OverlapResult, Relationship
+from crossfire.models import AnalysisReport, OverlapResult, Recommendation, Relationship
 
 log = logging.getLogger("crossfire.reporter")
 
@@ -17,7 +18,7 @@ log = logging.getLogger("crossfire.reporter")
 def render_json(report: AnalysisReport, output: TextIO) -> None:
     """Render report as JSON."""
     data = _report_to_dict(report)
-    json.dump(data, output, indent=2, default=str)
+    json.dump(data, output, indent=2, default=_json_default)
     output.write("\n")
     log.info("JSON report written (%d bytes)", output.tell() if hasattr(output, "tell") else 0)
 
@@ -162,7 +163,7 @@ def render_csv(report: AnalysisReport, output: TextIO) -> None:
         writer.writerow([
             r.rule_a, r.rule_b, r.source_a, r.source_b,
             f"{r.overlap_a_to_b:.4f}", f"{r.overlap_b_to_a:.4f}", f"{r.jaccard:.4f}",
-            r.relationship, r.recommendation, r.reason,
+            r.relationship.value, r.recommendation.value, r.reason,
         ])
 
     log.info("CSV report written (%d rows)", len(all_results))
@@ -222,6 +223,13 @@ def render(report: AnalysisReport, format: str, output: TextIO) -> None:
     renderer(report, output)
 
 
+def _json_default(obj: object) -> object:
+    """JSON serializer for enum values and other non-standard types."""
+    if isinstance(obj, Enum):
+        return obj.value
+    return str(obj)
+
+
 def _report_to_dict(report: AnalysisReport) -> dict:
     """Convert report to a JSON-serializable dict."""
     return {
@@ -250,14 +258,17 @@ def _short_source(source: str) -> str:
     return parts[-1] if len(parts) > 1 else source
 
 
-def _short_rec(rec: str) -> str:
+_REC_LABELS = {
+    Recommendation.KEEP_A: "Keep A",
+    Recommendation.KEEP_B: "Keep B",
+    Recommendation.KEEP_BOTH: "Keep both",
+    Recommendation.REVIEW: "Review",
+}
+
+
+def _short_rec(rec: Recommendation) -> str:
     """Shorten recommendation for table display."""
-    return {
-        "keep_a": "Keep A",
-        "keep_b": "Keep B",
-        "keep_both": "Keep both",
-        "review": "Review",
-    }.get(str(rec), str(rec))
+    return _REC_LABELS.get(rec, rec.value)
 
 
 def _format_duration(seconds: object) -> str:
