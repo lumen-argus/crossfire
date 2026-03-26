@@ -54,9 +54,9 @@ runs:
         CF_VERSION: ${{ inputs.crossfire-version }}
       run: |
         if [ "$CF_VERSION" = "latest" ]; then
-          pip install git+https://github.com/crossfire-tools/crossfire.git
+          pip install git+https://github.com/slima4/crossfire.git
         else
-          pip install "git+https://github.com/crossfire-tools/crossfire.git@v$CF_VERSION"
+          pip install "git+https://github.com/slima4/crossfire.git@v$CF_VERSION"
         fi
 
     - name: Run Crossfire

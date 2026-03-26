@@ -54,7 +54,7 @@ This handles any regex feature Python supports — anchors, lookahead, backrefer
 ## Install
 
 ```bash
-git clone https://github.com/crossfire-tools/crossfire.git
+git clone https://github.com/slima4/crossfire.git
 cd crossfire
 python3 -m venv .venv
 source .venv/bin/activate
@@ -213,7 +213,7 @@ crossfire scan vendor_rules.json --skip-invalid
 ### GitHub Action
 
 ```yaml
-- uses: crossfire-tools/crossfire@v1
+- uses: slima4/crossfire@v1
   with:
     rules: rules/*.json
     threshold: "0.8"
@@ -224,7 +224,7 @@ crossfire scan vendor_rules.json --skip-invalid
 
 ```yaml
 repos:
-  - repo: https://github.com/crossfire-tools/crossfire
+  - repo: https://github.com/slima4/crossfire
     rev: v0.1.0
     hooks:
       - id: crossfire-scan
@@ -235,7 +235,7 @@ repos:
 ### Any CI Pipeline
 
 ```bash
-pip install git+https://github.com/crossfire-tools/crossfire.git
+pip install git+https://github.com/slima4/crossfire.git
 crossfire compare rules/*.json --fail-on-duplicate --format summary
 ```
 
