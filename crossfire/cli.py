@@ -191,6 +191,289 @@ def generate_corpus(
     click.echo(f"Generated {len(entries)} corpus entries → {output}")
 
 
+@main.command("evaluate")
+@click.argument("rules_files", nargs=-1, required=True, type=click.Path(exists=True))
+@click.option("--corpus", required=True, type=click.Path(exists=True),
+    help="JSONL corpus file to test rules against.")
+@click.option("--corpus-field", default="text", help="Field name for text content in JSONL.")
+@click.option("--label-field", default="label", help="Field name for ground-truth labels.")
+@click.option("--format", "fmt", default="table", type=click.Choice(
+    ["json", "table", "summary"]), help="Output format.")
+@click.option("--output", "-o", default=None, type=click.Path(), help="Output file path.")
+@click.option("--skip-invalid", is_flag=True, help="Skip invalid rules instead of failing.")
+@click.option("--redact-samples", is_flag=True,
+    help="Don't include matched text in debug logs.")
+def evaluate_cmd(
+    rules_files: tuple[str, ...],
+    corpus: str,
+    corpus_field: str,
+    label_field: str,
+    fmt: str,
+    output: Optional[str],
+    skip_invalid: bool,
+    redact_samples: bool,
+) -> None:
+    """Evaluate rules against a real-world corpus.
+
+    Tests which rules fire on real data. If the corpus has labels,
+    computes precision, recall, and F1 per rule.
+    """
+    import json
+    from crossfire.corpus import evaluate_corpus, load_corpus_jsonl
+    from crossfire.loader import load_multiple
+
+    try:
+        rules = load_multiple(list(rules_files), skip_invalid=skip_invalid)
+    except (ValidationError, LoadError) as e:
+        click.echo(f"ERROR: {e}", err=True)
+        sys.exit(EXIT_INPUT_ERROR)
+
+    try:
+        entries = load_corpus_jsonl(
+            corpus, text_field=corpus_field, label_field=label_field,
+        )
+    except LoadError as e:
+        click.echo(f"ERROR: {e}", err=True)
+        sys.exit(EXIT_INPUT_ERROR)
+
+    report = evaluate_corpus(rules, entries, redact_samples=redact_samples)
+    _render_evaluation(report, fmt, output)
+
+
+@main.command("evaluate-git")
+@click.argument("rules_files", nargs=-1, required=True, type=click.Path(exists=True))
+@click.option("--repo", required=True, type=click.Path(exists=True),
+    help="Path to git repository.")
+@click.option("--max-commits", default=500, type=int, help="Maximum commits to scan.")
+@click.option("--format", "fmt", default="table", type=click.Choice(
+    ["json", "table", "summary"]), help="Output format.")
+@click.option("--output", "-o", default=None, type=click.Path(), help="Output file path.")
+@click.option("--skip-invalid", is_flag=True, help="Skip invalid rules instead of failing.")
+def evaluate_git_cmd(
+    rules_files: tuple[str, ...],
+    repo: str,
+    max_commits: int,
+    fmt: str,
+    output: Optional[str],
+    skip_invalid: bool,
+) -> None:
+    """Evaluate rules against git repository history.
+
+    Extracts added/modified lines from recent commits and tests
+    which rules match.
+    """
+    from crossfire.corpus import evaluate_corpus, load_corpus_git
+    from crossfire.loader import load_multiple
+
+    try:
+        rules = load_multiple(list(rules_files), skip_invalid=skip_invalid)
+    except (ValidationError, LoadError) as e:
+        click.echo(f"ERROR: {e}", err=True)
+        sys.exit(EXIT_INPUT_ERROR)
+
+    try:
+        entries = load_corpus_git(repo, max_commits=max_commits)
+    except (LoadError, CrossfireError) as e:
+        click.echo(f"ERROR: {e}", err=True)
+        sys.exit(EXIT_INPUT_ERROR)
+
+    report = evaluate_corpus(rules, entries)
+    _render_evaluation(report, fmt, output)
+
+
+@main.command("diff")
+@click.argument("rules_files", nargs=-1, required=True, type=click.Path(exists=True))
+@click.option("--corpus-a", required=True, type=click.Path(exists=True),
+    help="First JSONL corpus file.")
+@click.option("--corpus-b", required=True, type=click.Path(exists=True),
+    help="Second JSONL corpus file.")
+@click.option("--corpus-field", default="text", help="Field name for text content.")
+@click.option("--format", "fmt", default="table", type=click.Choice(
+    ["json", "table"]), help="Output format.")
+@click.option("--output", "-o", default=None, type=click.Path(), help="Output file path.")
+@click.option("--skip-invalid", is_flag=True, help="Skip invalid rules instead of failing.")
+def diff_cmd(
+    rules_files: tuple[str, ...],
+    corpus_a: str,
+    corpus_b: str,
+    corpus_field: str,
+    fmt: str,
+    output: Optional[str],
+    skip_invalid: bool,
+) -> None:
+    """Compare rule behavior across two corpora (coverage drift).
+
+    For each rule, computes match rate in each corpus and flags rules
+    with >5% divergence.
+    """
+    import json
+    from crossfire.corpus import diff_corpora, load_corpus_jsonl
+    from crossfire.loader import load_multiple
+
+    try:
+        rules = load_multiple(list(rules_files), skip_invalid=skip_invalid)
+    except (ValidationError, LoadError) as e:
+        click.echo(f"ERROR: {e}", err=True)
+        sys.exit(EXIT_INPUT_ERROR)
+
+    try:
+        entries_a = load_corpus_jsonl(corpus_a, text_field=corpus_field)
+        entries_b = load_corpus_jsonl(corpus_b, text_field=corpus_field)
+    except LoadError as e:
+        click.echo(f"ERROR: {e}", err=True)
+        sys.exit(EXIT_INPUT_ERROR)
+
+    result = diff_corpora(
+        rules, entries_a, entries_b,
+        name_a=Path(corpus_a).stem,
+        name_b=Path(corpus_b).stem,
+    )
+
+    if fmt == "json":
+        content = json.dumps(result, indent=2, default=str)
+        if output:
+            Path(output).write_text(content)
+            click.echo(f"Report written to {output}")
+        else:
+            click.echo(content)
+    else:
+        _render_diff_table(result, output)
+
+
+def _render_evaluation(report: "EvaluationReport", fmt: str, output: Optional[str]) -> None:
+    """Render evaluation report."""
+    import json
+    from dataclasses import asdict
+    from crossfire.corpus import EvaluationReport
+
+    if fmt == "json":
+        data = {
+            "total_entries": report.total_entries,
+            "labeled_entries": report.labeled_entries,
+            "rules_evaluated": report.rules_evaluated,
+            "rule_metrics": [asdict(m) for m in report.rule_metrics if m.matched_count > 0],
+            "co_firing": [
+                {"rule_a": a, "rule_b": b, "count": c}
+                for a, b, c in report.co_firing[:50]
+            ],
+            "summary": report.summary,
+        }
+        content = json.dumps(data, indent=2, default=str)
+        if output:
+            Path(output).write_text(content)
+            click.echo(f"Report written to {output}")
+        else:
+            click.echo(content)
+    elif fmt == "summary":
+        s = report.summary
+        click.echo(
+            f"Evaluated {s['total_entries']} entries against {report.rules_evaluated} rules. "
+            f"{s['rules_firing']} rules fired, {s['co_firing_pairs']} co-firing pairs."
+        )
+        if report.labeled_entries:
+            click.echo(
+                f"Labeled: avg precision={s['avg_precision']:.2f}, "
+                f"avg recall={s['avg_recall']:.2f}."
+            )
+    else:
+        # Table format
+        click.echo(f"\n{'=' * 72}")
+        click.echo(f"  Crossfire Evaluation Report")
+        click.echo(
+            f"  Entries: {report.total_entries} "
+            f"({report.labeled_entries} labeled) | "
+            f"Rules: {report.rules_evaluated} | "
+            f"Time: {report.duration_s}s"
+        )
+        click.echo(f"{'=' * 72}\n")
+
+        # Rules that fired
+        firing = sorted(
+            [m for m in report.rule_metrics if m.matched_count > 0],
+            key=lambda m: m.matched_count,
+            reverse=True,
+        )
+        if firing:
+            click.echo(f"  Rules that fired ({len(firing)}):")
+            click.echo(f"  {'-' * 55}")
+            if report.labeled_entries:
+                click.echo(f"  {'Rule':<30} {'Matches':>8} {'Prec':>6} {'Recall':>6} {'F1':>6}")
+                click.echo(f"  {'-' * 55}")
+                for m in firing[:30]:
+                    click.echo(
+                        f"  {m.name:<30} {m.matched_count:>8} "
+                        f"{m.precision:>5.2f} {m.recall:>6.2f} {m.f1:>5.2f}"
+                    )
+            else:
+                click.echo(f"  {'Rule':<40} {'Matches':>8}")
+                click.echo(f"  {'-' * 55}")
+                for m in firing[:30]:
+                    click.echo(f"  {m.name:<40} {m.matched_count:>8}")
+            if len(firing) > 30:
+                click.echo(f"  ... and {len(firing) - 30} more")
+            click.echo()
+
+        # Top co-firing pairs
+        if report.co_firing:
+            click.echo(f"  Top co-firing pairs ({len(report.co_firing)}):")
+            click.echo(f"  {'-' * 55}")
+            click.echo(f"  {'Rule A':<25} {'Rule B':<25} {'Count':>5}")
+            click.echo(f"  {'-' * 55}")
+            for a, b, count in report.co_firing[:15]:
+                click.echo(f"  {a:<25} {b:<25} {count:>5}")
+            click.echo()
+
+        if output:
+            # Also write JSON if output specified
+            import json
+            from dataclasses import asdict
+            data = {
+                "rule_metrics": [asdict(m) for m in report.rule_metrics if m.matched_count > 0],
+                "co_firing": [{"rule_a": a, "rule_b": b, "count": c} for a, b, c in report.co_firing],
+                "summary": report.summary,
+            }
+            Path(output).write_text(json.dumps(data, indent=2, default=str))
+            click.echo(f"  Full report written to {output}")
+
+
+def _render_diff_table(result: dict, output: Optional[str]) -> None:
+    """Render differential analysis as a table."""
+    name_a = result["name_a"]
+    name_b = result["name_b"]
+
+    click.echo(f"\n{'=' * 72}")
+    click.echo(f"  Crossfire Differential Analysis")
+    click.echo(
+        f"  {name_a}: {result['entries_a']} entries | "
+        f"{name_b}: {result['entries_b']} entries"
+    )
+    click.echo(f"{'=' * 72}\n")
+
+    significant = [r for r in result["results"] if r.get("significant")]
+    if significant:
+        click.echo(f"  Rules with significant drift ({len(significant)}):")
+        click.echo(f"  {'-' * 65}")
+        click.echo(
+            f"  {'Rule':<30} {name_a + ' %':>10} {name_b + ' %':>10} {'Drift':>8}"
+        )
+        click.echo(f"  {'-' * 65}")
+        for r in significant[:30]:
+            click.echo(
+                f"  {r['rule']:<30} "
+                f"{r[f'rate_{name_a}'] * 100:>9.1f}% "
+                f"{r[f'rate_{name_b}'] * 100:>9.1f}% "
+                f"{r['drift'] * 100:>7.1f}%"
+            )
+        click.echo()
+    else:
+        click.echo("  No significant drift detected.\n")
+
+    if output:
+        import json
+        Path(output).write_text(json.dumps(result, indent=2, default=str))
+        click.echo(f"  Full report written to {output}")
+
+
 def _run_analysis(
     files: list[str],
     *,

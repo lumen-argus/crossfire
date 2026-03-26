@@ -40,7 +40,8 @@ Pipeline: Load → Validate (fail-fast) → Generate corpus → Cross-evaluate �
 - `quality.py` — Per-rule quality scoring: specificity, false positive potential, unique coverage, broad pattern detection, pattern complexity (via regex AST)
 - `reporter.py` — Output rendering (JSON/table/CSV/summary) with quality insights
 - `analyzer.py` — Orchestrator coordinating the full pipeline including quality assessment
-- `cli.py` — Click CLI with scan, compare, validate, generate-corpus commands
+- `corpus.py` — Real-world corpus loading (JSONL + git history), labeled evaluation (precision/recall/F1), differential analysis (coverage drift)
+- `cli.py` — Click CLI with scan, compare, validate, generate-corpus, evaluate, evaluate-git, diff commands
 - `errors.py` — CrossfireError, ValidationError, LoadError, GenerationError
 - `logging.py` — Structured logging (text + JSON formats)
 
@@ -59,6 +60,9 @@ crossfire validate rules.json                    # Quick syntax check
 crossfire scan rules.json --format table         # Find internal duplicates
 crossfire compare a.json b.json --format json    # Cross-file overlap
 crossfire generate-corpus rules.json -o out.json # Export corpus for debugging
+crossfire evaluate rules.json --corpus data.jsonl # Test rules on real data
+crossfire evaluate-git rules.json --repo /path     # Test rules on git history
+crossfire diff rules.json --corpus-a a.jsonl --corpus-b b.jsonl  # Coverage drift
 ```
 
 ## Dependencies
