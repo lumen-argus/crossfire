@@ -1,0 +1,32 @@
+[
+  {
+    "name": "aws_access_key",
+    "pattern": "AKIA[0-9A-Z]{16}",
+    "detector": "secrets",
+    "severity": "critical"
+  },
+  {
+    "name": "slack_token",
+    "pattern": "xoxb-[0-9]{11,13}-[0-9]{11,13}-[a-zA-Z0-9]{24}",
+    "detector": "secrets",
+    "severity": "high"
+  },
+  {
+    "name": "generic_api_key",
+    "pattern": "[a-zA-Z0-9]{32,64}",
+    "detector": "secrets",
+    "severity": "medium"
+  },
+  {
+    "name": "email_address",
+    "pattern": "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}",
+    "detector": "pii",
+    "severity": "medium"
+  },
+  {
+    "name": "ipv4_address",
+    "pattern": "\\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\b",
+    "detector": "pii",
+    "severity": "low"
+  }
+]

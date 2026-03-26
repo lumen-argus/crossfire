@@ -1,0 +1,44 @@
+[
+  {
+    "name": "aws_key_v1",
+    "pattern": "AKIA[0-9A-Z]{16}",
+    "detector": "secrets",
+    "severity": "critical"
+  },
+  {
+    "name": "aws_key_v2",
+    "pattern": "AKIA[A-Z0-9]{16}",
+    "detector": "secrets",
+    "severity": "critical"
+  },
+  {
+    "name": "hex_token_32",
+    "pattern": "[0-9a-f]{32}",
+    "detector": "secrets",
+    "severity": "medium"
+  },
+  {
+    "name": "hex_token_32_upper",
+    "pattern": "[0-9A-F]{32}",
+    "detector": "secrets",
+    "severity": "medium"
+  },
+  {
+    "name": "hex_token_any_case",
+    "pattern": "[0-9a-fA-F]{32}",
+    "detector": "secrets",
+    "severity": "medium"
+  },
+  {
+    "name": "generic_secret_broad",
+    "pattern": "(?:secret|password|token|key)\\s*[=:]\\s*\\S+",
+    "detector": "secrets",
+    "severity": "low"
+  },
+  {
+    "name": "password_assign",
+    "pattern": "password\\s*=\\s*\\S+",
+    "detector": "secrets",
+    "severity": "low"
+  }
+]
