@@ -54,7 +54,11 @@ This handles any regex feature Python supports — anchors, lookahead, backrefer
 ## Install
 
 ```bash
-pip install crossfire
+git clone https://github.com/crossfire-tools/crossfire.git
+cd crossfire
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
 ```
 
 Requires Python 3.10+. No heavy dependencies.
@@ -231,7 +235,7 @@ repos:
 ### Any CI Pipeline
 
 ```bash
-pip install crossfire
+pip install git+https://github.com/crossfire-tools/crossfire.git
 crossfire compare rules/*.json --fail-on-duplicate --format summary
 ```
 
