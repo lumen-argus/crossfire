@@ -36,22 +36,19 @@ class GitleaksAdapter:
     def name(self) -> str:
         return "gitleaks"
 
-    @property
-    def extensions(self) -> list[str]:
-        return [".toml"]
-
     def can_load(self, path: str) -> bool:
         """Check if this is a GitLeaks TOML file.
 
         Returns True for .toml files that contain [[rules]] sections.
+        Reads only the first 2KB to avoid loading large files.
         """
         p = Path(path)
         if p.suffix.lower() != ".toml":
             return False
 
-        # Quick content check for GitLeaks-specific structure
         try:
-            content = p.read_text(errors="replace")[:2000]
+            with open(p, "r", errors="replace") as f:
+                content = f.read(2048)
             return "[[rules]]" in content and ("regex" in content or "id" in content)
         except OSError:
             return False
@@ -115,7 +112,7 @@ class GitleaksAdapter:
         if _RE2_INCOMPATIBLE.search(regex):
             log.debug(
                 "GitLeaks rule '%s': pattern uses lookahead/lookbehind "
-                "(RE2 compatible, may work differently in Python)",
+                "(not RE2-native, may have been added for Python-based forks)",
                 rule_id,
             )
 
@@ -126,9 +123,9 @@ class GitleaksAdapter:
         metadata: dict[str, object] = {}
         if rule.get("description"):
             metadata["description"] = rule["description"]
-        if rule.get("entropy"):
+        if "entropy" in rule:
             metadata["entropy"] = rule["entropy"]
-        if rule.get("secretGroup"):
+        if "secretGroup" in rule:
             metadata["secret_group"] = rule["secretGroup"]
         if rule.get("keywords"):
             metadata["keywords"] = rule["keywords"]

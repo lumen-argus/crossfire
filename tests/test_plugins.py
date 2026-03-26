@@ -128,6 +128,15 @@ class TestGitleaksIntegration:
         assert rules[0].detector == "secrets"
         assert rules[0].compiled is not None
 
+    def test_metadata_not_nested(self):
+        """Adapter metadata should be used directly, not wrapped in extra dict."""
+        rules = load_rules(GITLEAKS_FIXTURE)
+        aws = next(r for r in rules if r.name == "aws-access-token")
+        # metadata should contain entropy directly, not {"metadata": {"entropy": ...}}
+        assert "entropy" in aws.metadata
+        assert "metadata" not in aws.metadata
+        assert aws.metadata["entropy"] == 3.5
+
     def test_scan_gitleaks_rules(self):
         """Full scan pipeline should work with GitLeaks rules."""
         from click.testing import CliRunner

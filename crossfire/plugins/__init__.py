@@ -12,8 +12,6 @@ from __future__ import annotations
 import logging
 from typing import Protocol
 
-from crossfire.models import Rule
-
 log = logging.getLogger("crossfire.plugins")
 
 
@@ -23,11 +21,6 @@ class RuleAdapter(Protocol):
     @property
     def name(self) -> str:
         """Short name for this adapter (e.g., 'gitleaks')."""
-        ...
-
-    @property
-    def extensions(self) -> list[str]:
-        """File extensions this adapter handles (e.g., ['.toml'])."""
         ...
 
     def can_load(self, path: str) -> bool:
@@ -44,28 +37,44 @@ class RuleAdapter(Protocol):
 
 
 _adapters: list[RuleAdapter] = []
+_initialized = False
 
 
 def register_adapter(adapter: RuleAdapter) -> None:
-    """Register a format adapter."""
+    """Register a format adapter. Skips if an adapter with the same name exists."""
+    if any(a.name == adapter.name for a in _adapters):
+        log.debug("Adapter '%s' already registered, skipping", adapter.name)
+        return
     _adapters.append(adapter)
-    log.info("Registered adapter: %s (extensions: %s)", adapter.name, adapter.extensions)
+    log.info("Registered adapter: %s", adapter.name)
 
 
 def get_adapters() -> list[RuleAdapter]:
     """Get all registered adapters (built-in + external)."""
+    _ensure_initialized()
     return list(_adapters)
 
 
 def find_adapter(path: str) -> RuleAdapter | None:
     """Find an adapter that can load the given file."""
+    _ensure_initialized()
     for adapter in _adapters:
         if adapter.can_load(path):
             return adapter
     return None
 
 
-def discover_external_adapters() -> None:
+def _ensure_initialized() -> None:
+    """Lazy initialization — registers adapters on first use."""
+    global _initialized
+    if _initialized:
+        return
+    _initialized = True
+    _register_builtin_adapters()
+    _discover_external_adapters()
+
+
+def _discover_external_adapters() -> None:
     """Discover and register adapters from entry_points."""
     try:
         from importlib.metadata import entry_points
@@ -86,8 +95,3 @@ def _register_builtin_adapters() -> None:
     """Register built-in adapters."""
     from crossfire.plugins.gitleaks import GitleaksAdapter
     register_adapter(GitleaksAdapter())
-
-
-# Auto-register on import
-_register_builtin_adapters()
-discover_external_adapters()

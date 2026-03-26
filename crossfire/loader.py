@@ -135,14 +135,13 @@ def load_rules(
     if adapter:
         log.info("Loading rules from %s (adapter: %s)", path, adapter.name)
         raw_entries = adapter.load(str(path))
-        if not raw_entries:
-            raise LoadError(f"No rules found in {path}")
     else:
         fmt = _detect_format(path)
         log.info("Loading rules from %s (format: %s)", path, fmt)
         raw_entries = _LOADERS[fmt](path)
-        if not raw_entries:
-            raise LoadError(f"No rules found in {path}")
+
+    if not raw_entries:
+        raise LoadError(f"No rules found in {path}")
 
     # Build field lookup with custom mapping overrides
     name_fields = DEFAULT_NAME_FIELDS
@@ -258,10 +257,13 @@ def load_rules(
         tags_raw = entry.get("tags", [])
         tags = tags_raw if isinstance(tags_raw, list) else []
 
-        # Collect remaining fields as metadata
-        known_keys = set(name_fields + pattern_fields + DEFAULT_DETECTOR_FIELDS
-                         + DEFAULT_SEVERITY_FIELDS + ("tags",))
-        metadata = {k: v for k, v in entry.items() if k not in known_keys}
+        # Use adapter-provided metadata directly, or collect remaining fields
+        if "metadata" in entry and isinstance(entry["metadata"], dict):
+            metadata = entry["metadata"]
+        else:
+            known_keys = set(name_fields + pattern_fields + DEFAULT_DETECTOR_FIELDS
+                             + DEFAULT_SEVERITY_FIELDS + ("tags",))
+            metadata = {k: v for k, v in entry.items() if k not in known_keys}
 
         rules.append(Rule(
             name=name,
