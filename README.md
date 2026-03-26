@@ -287,6 +287,10 @@ Tested on 1,722 real detection rules (54 community + 1,668 commercial):
 
 Results: 22 duplicates, 249 subsets, 82 overlaps, 18 clusters, 31 broad patterns, 240 fully redundant rules.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, coding standards, and how to add format adapters.
+
 ## License
 
-MIT
+MIT - see [LICENSE](LICENSE) for details.
