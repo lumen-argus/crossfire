@@ -8,7 +8,7 @@ from typing import Optional
 
 from crossfire.confidence import wilson_interval
 from crossfire.evaluator import MatchMatrix
-from crossfire.models import ClusterInfo, OverlapResult, Rule
+from crossfire.models import ClusterInfo, OverlapResult, Recommendation, Relationship, Rule
 
 log = logging.getLogger("crossfire.classifier")
 
@@ -69,10 +69,10 @@ class Classifier:
 
         log.info(
             "Classification complete: %d duplicates, %d subsets, %d overlaps, %d disjoint",
-            counts.get("duplicate", 0),
-            counts.get("subset", 0) + counts.get("superset", 0),
-            counts.get("overlap", 0),
-            counts.get("disjoint", 0),
+            counts.get(Relationship.DUPLICATE, 0),
+            counts.get(Relationship.SUBSET, 0) + counts.get(Relationship.SUPERSET, 0),
+            counts.get(Relationship.OVERLAP, 0),
+            counts.get(Relationship.DISJOINT, 0),
         )
 
         # Build clusters from non-disjoint pairs
@@ -116,7 +116,7 @@ class Classifier:
         )
 
         # Skip disjoint pairs (not worth reporting)
-        if relationship == "disjoint":
+        if relationship == Relationship.DISJOINT:
             return None
 
         log.debug(
@@ -167,37 +167,32 @@ class Classifier:
         overlap_b_to_a: float,
         rule_a: Optional[Rule],
         rule_b: Optional[Rule],
-    ) -> tuple[str, str, str]:
+    ) -> tuple[Relationship, Recommendation, str]:
         """Determine relationship type, recommendation, and reason."""
         T = self.threshold
 
         if overlap_a_to_b >= T and overlap_b_to_a >= T:
-            relationship = "duplicate"
             rec, reason = self._recommend_keep(name_a, name_b, rule_a, rule_b)
-            return relationship, rec, reason
+            return Relationship.DUPLICATE, rec, reason
 
         if overlap_a_to_b >= T and overlap_b_to_a < T:
-            # A matches most of B's corpus, but B doesn't match most of A's
-            # → B is a subset of A (A is more comprehensive)
-            relationship = "subset"
             priority_a = rule_a.priority if rule_a else 0
             priority_b = rule_b.priority if rule_b else 0
             if priority_b > priority_a:
-                return relationship, "keep_both", f"'{name_b}' has higher priority but is a subset"
-            return relationship, "keep_a", f"'{name_a}' is more comprehensive (superset)"
+                return Relationship.SUBSET, Recommendation.KEEP_BOTH, f"'{name_b}' has higher priority but is a subset"
+            return Relationship.SUBSET, Recommendation.KEEP_A, f"'{name_a}' is more comprehensive (superset)"
 
         if overlap_b_to_a >= T and overlap_a_to_b < T:
-            relationship = "superset"
             priority_a = rule_a.priority if rule_a else 0
             priority_b = rule_b.priority if rule_b else 0
             if priority_a > priority_b:
-                return relationship, "keep_both", f"'{name_a}' has higher priority but is a subset"
-            return relationship, "keep_b", f"'{name_b}' is more comprehensive (superset)"
+                return Relationship.SUPERSET, Recommendation.KEEP_BOTH, f"'{name_a}' has higher priority but is a subset"
+            return Relationship.SUPERSET, Recommendation.KEEP_B, f"'{name_b}' is more comprehensive (superset)"
 
         if overlap_a_to_b >= self.overlap_min or overlap_b_to_a >= self.overlap_min:
-            return "overlap", "review", "Partial overlap — review manually"
+            return Relationship.OVERLAP, Recommendation.REVIEW, "Partial overlap — review manually"
 
-        return "disjoint", "keep_both", ""
+        return Relationship.DISJOINT, Recommendation.KEEP_BOTH, ""
 
     def _recommend_keep(
         self,
@@ -205,18 +200,18 @@ class Classifier:
         name_b: str,
         rule_a: Optional[Rule],
         rule_b: Optional[Rule],
-    ) -> tuple[str, str]:
+    ) -> tuple[Recommendation, str]:
         """For duplicates, recommend which rule to keep based on priority."""
         priority_a = rule_a.priority if rule_a else 0
         priority_b = rule_b.priority if rule_b else 0
 
         if priority_a > priority_b:
             source = f" ({rule_a.source})" if rule_a and rule_a.source else ""
-            return "keep_a", f"Higher priority source{source}"
+            return Recommendation.KEEP_A, f"Higher priority source{source}"
         if priority_b > priority_a:
             source = f" ({rule_b.source})" if rule_b and rule_b.source else ""
-            return "keep_b", f"Higher priority source{source}"
-        return "review", "Equal priority — review manually"
+            return Recommendation.KEEP_B, f"Higher priority source{source}"
+        return Recommendation.REVIEW, "Equal priority — review manually"
 
     def _build_clusters(
         self,

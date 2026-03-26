@@ -9,6 +9,8 @@ from crossfire.models import (
     ClusterInfo,
     CorpusEntry,
     OverlapResult,
+    Recommendation,
+    Relationship,
     Rule,
 )
 
@@ -66,11 +68,11 @@ class TestOverlapResult:
             a_corpus_size=50, b_corpus_size=50,
             overlap_a_to_b=0.9, overlap_b_to_a=0.96,
             jaccard=0.88,
-            relationship="duplicate",
-            recommendation="keep_a",
+            relationship=Relationship.DUPLICATE,
+            recommendation=Recommendation.KEEP_A,
             reason="Higher priority",
         )
-        assert r.relationship == "duplicate"
+        assert r.relationship == Relationship.DUPLICATE
         assert r.jaccard == 0.88
 
 

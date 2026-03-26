@@ -13,6 +13,8 @@ from typing import Optional, TextIO
 from crossfire.errors import CrossfireError, LoadError
 from crossfire.models import CorpusEntry, Rule
 
+DRIFT_THRESHOLD = 0.05
+
 log = logging.getLogger("crossfire.corpus")
 
 
@@ -52,6 +54,32 @@ class EvaluationReport:
     co_firing: list[tuple[str, str, int]]  # (rule_a, rule_b, co_fire_count)
     duration_s: float
     summary: dict[str, object]
+
+
+@dataclass
+class DiffRuleResult:
+    """Per-rule comparison across two corpora."""
+
+    rule: str
+    matches_a: int
+    matches_b: int
+    rate_a: float
+    rate_b: float
+    drift: float
+    significant: bool
+
+
+@dataclass
+class DiffReport:
+    """Results of comparing rule behavior across two corpora."""
+
+    name_a: str
+    name_b: str
+    entries_a: int
+    entries_b: int
+    rules_with_matches: int
+    rules_with_drift: int
+    results: list[DiffRuleResult]
 
 
 def load_corpus_jsonl(
@@ -350,7 +378,8 @@ def diff_corpora(
     *,
     name_a: str = "corpus_a",
     name_b: str = "corpus_b",
-) -> dict[str, object]:
+    drift_threshold: float = DRIFT_THRESHOLD,
+) -> DiffReport:
     """Compare rule behavior across two corpora.
 
     For each rule, compute match rate in each corpus and flag rules with
@@ -362,16 +391,17 @@ def diff_corpora(
         corpus_b: Second corpus.
         name_a: Display name for first corpus.
         name_b: Display name for second corpus.
+        drift_threshold: Minimum rate difference to flag as significant.
 
     Returns:
-        Dict with per-rule divergence analysis.
+        DiffReport with per-rule divergence analysis.
     """
     log.info(
         "Differential analysis: %d rules against %s (%d entries) vs %s (%d entries)",
         len(rules), name_a, len(corpus_a), name_b, len(corpus_b),
     )
 
-    results: list[dict[str, object]] = []
+    results: list[DiffRuleResult] = []
 
     for rule in rules:
         matches_a = sum(1 for e in corpus_a if rule.compiled.search(e.text))
@@ -382,31 +412,30 @@ def diff_corpora(
         drift = abs(rate_a - rate_b)
 
         if matches_a > 0 or matches_b > 0:
-            results.append({
-                "rule": rule.name,
-                f"matches_{name_a}": matches_a,
-                f"matches_{name_b}": matches_b,
-                f"rate_{name_a}": round(rate_a, 4),
-                f"rate_{name_b}": round(rate_b, 4),
-                "drift": round(drift, 4),
-                "significant": drift > 0.05,  # >5% difference
-            })
+            results.append(DiffRuleResult(
+                rule=rule.name,
+                matches_a=matches_a,
+                matches_b=matches_b,
+                rate_a=round(rate_a, 4),
+                rate_b=round(rate_b, 4),
+                drift=round(drift, 4),
+                significant=drift > drift_threshold,
+            ))
 
-    # Sort by drift descending
-    results.sort(key=lambda r: r["drift"], reverse=True)  # type: ignore[arg-type]
+    results.sort(key=lambda r: r.drift, reverse=True)
 
-    significant = [r for r in results if r.get("significant")]
+    significant = [r for r in results if r.significant]
     log.info(
         "Differential analysis complete: %d rules with matches, %d with significant drift",
         len(results), len(significant),
     )
 
-    return {
-        "name_a": name_a,
-        "name_b": name_b,
-        "entries_a": len(corpus_a),
-        "entries_b": len(corpus_b),
-        "rules_with_matches": len(results),
-        "rules_with_drift": len(significant),
-        "results": results,
-    }
+    return DiffReport(
+        name_a=name_a,
+        name_b=name_b,
+        entries_a=len(corpus_a),
+        entries_b=len(corpus_b),
+        rules_with_matches=len(results),
+        rules_with_drift=len(significant),
+        results=results,
+    )

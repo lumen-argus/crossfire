@@ -7,7 +7,7 @@ import re
 import pytest
 
 from crossfire.classifier import Classifier
-from crossfire.models import Rule
+from crossfire.models import Recommendation, Relationship, Rule
 
 
 def _make_rule(name: str, source: str = "test", priority: int = 0) -> Rule:
@@ -28,9 +28,9 @@ class TestRelationshipClassification:
         }
         sizes = {"a": 50, "b": 50}
         results, _ = classifier.classify(matrix, rules, sizes)
-        dups = [r for r in results if r.relationship == "duplicate"]
+        dups = [r for r in results if r.relationship == Relationship.DUPLICATE]
         assert len(dups) == 1
-        assert dups[0].recommendation == "keep_a"  # higher priority
+        assert dups[0].recommendation == Recommendation.KEEP_A  # higher priority
 
     def test_subset(self):
         """A matches most of B's corpus, but B doesn't match most of A's → subset."""
@@ -42,9 +42,9 @@ class TestRelationshipClassification:
         }
         sizes = {"broad": 50, "specific": 50}
         results, _ = classifier.classify(matrix, rules, sizes)
-        subs = [r for r in results if r.relationship == "subset"]
+        subs = [r for r in results if r.relationship == Relationship.SUBSET]
         assert len(subs) == 1
-        assert subs[0].recommendation == "keep_a"  # broad is the superset
+        assert subs[0].recommendation == Recommendation.KEEP_A  # broad is the superset
 
     def test_superset(self):
         """B matches most of A's corpus, but A doesn't match most of B's → superset."""
@@ -56,9 +56,9 @@ class TestRelationshipClassification:
         }
         sizes = {"specific": 50, "broad": 50}
         results, _ = classifier.classify(matrix, rules, sizes)
-        sups = [r for r in results if r.relationship == "superset"]
+        sups = [r for r in results if r.relationship == Relationship.SUPERSET]
         assert len(sups) == 1
-        assert sups[0].recommendation == "keep_b"
+        assert sups[0].recommendation == Recommendation.KEEP_B
 
     def test_overlap(self):
         """Partial overlap above minimum but below threshold."""
@@ -70,9 +70,9 @@ class TestRelationshipClassification:
         }
         sizes = {"a": 50, "b": 50}
         results, _ = classifier.classify(matrix, rules, sizes)
-        overlaps = [r for r in results if r.relationship == "overlap"]
+        overlaps = [r for r in results if r.relationship == Relationship.OVERLAP]
         assert len(overlaps) == 1
-        assert overlaps[0].recommendation == "review"
+        assert overlaps[0].recommendation == Recommendation.REVIEW
 
     def test_disjoint(self):
         """Very low overlap → disjoint (not reported)."""
@@ -99,7 +99,7 @@ class TestThresholdBoundary:
         }
         sizes = {"a": 50, "b": 50}
         results, _ = classifier.classify(matrix, rules, sizes)
-        dups = [r for r in results if r.relationship == "duplicate"]
+        dups = [r for r in results if r.relationship == Relationship.DUPLICATE]
         assert len(dups) == 1
 
     def test_just_below_threshold(self):
@@ -112,7 +112,7 @@ class TestThresholdBoundary:
         }
         sizes = {"a": 50, "b": 50}
         results, _ = classifier.classify(matrix, rules, sizes)
-        dups = [r for r in results if r.relationship == "duplicate"]
+        dups = [r for r in results if r.relationship == Relationship.DUPLICATE]
         assert len(dups) == 0
 
     def test_custom_threshold(self):
@@ -124,7 +124,7 @@ class TestThresholdBoundary:
         }
         sizes = {"a": 50, "b": 50}
         results, _ = classifier.classify(matrix, rules, sizes)
-        dups = [r for r in results if r.relationship == "duplicate"]
+        dups = [r for r in results if r.relationship == Relationship.DUPLICATE]
         assert len(dups) == 1
 
 
@@ -217,7 +217,7 @@ class TestRecommendation:
         }
         sizes = {"community": 50, "pro": 50}
         results, _ = classifier.classify(matrix, rules, sizes)
-        assert results[0].recommendation == "keep_a"
+        assert results[0].recommendation == Recommendation.KEEP_A
         assert "community.json" in results[0].reason
 
     def test_equal_priority_review(self):
@@ -229,7 +229,7 @@ class TestRecommendation:
         }
         sizes = {"a": 50, "b": 50}
         results, _ = classifier.classify(matrix, rules, sizes)
-        assert results[0].recommendation == "review"
+        assert results[0].recommendation == Recommendation.REVIEW
 
     def test_subset_keeps_superset(self):
         classifier = Classifier(threshold=0.8)
@@ -243,9 +243,9 @@ class TestRecommendation:
         }
         sizes = {"broad": 50, "specific": 50}
         results, _ = classifier.classify(matrix, rules, sizes)
-        subs = [r for r in results if r.relationship == "subset"]
+        subs = [r for r in results if r.relationship == Relationship.SUBSET]
         assert len(subs) == 1
-        assert subs[0].recommendation == "keep_a"  # broad is the superset
+        assert subs[0].recommendation == Recommendation.KEEP_A  # broad is the superset
 
 
 class TestEmptyInputs:

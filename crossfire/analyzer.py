@@ -13,7 +13,7 @@ from crossfire.classifier import Classifier
 from crossfire.evaluator import Evaluator
 from crossfire.generator import CorpusGenerator
 from crossfire.loader import load_multiple, load_rules
-from crossfire.models import AnalysisReport, OverlapResult
+from crossfire.models import AnalysisReport, OverlapResult, Recommendation, Relationship
 
 log = logging.getLogger("crossfire.analyzer")
 
@@ -109,19 +109,19 @@ def analyze(
     )
 
     # Step 6: Build report
-    duplicates = [r for r in results if r.relationship == "duplicate"]
-    subsets = [r for r in results if r.relationship in ("subset", "superset")]
-    overlaps = [r for r in results if r.relationship == "overlap"]
+    duplicates = [r for r in results if r.relationship == Relationship.DUPLICATE]
+    subsets = [r for r in results if r.relationship in (Relationship.SUBSET, Relationship.SUPERSET)]
+    overlaps = [r for r in results if r.relationship == Relationship.OVERLAP]
 
     # Count recommendations
     all_non_disjoint = duplicates + subsets + overlaps
     drop_count = sum(
         1 for r in all_non_disjoint
-        if r.recommendation in ("keep_a", "keep_b")
+        if r.recommendation in (Recommendation.KEEP_A, Recommendation.KEEP_B)
     )
     review_count = sum(
         1 for r in all_non_disjoint
-        if r.recommendation == "review"
+        if r.recommendation == Recommendation.REVIEW
     )
 
     total_duration = time.monotonic() - t0

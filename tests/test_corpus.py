@@ -10,6 +10,8 @@ from pathlib import Path
 import pytest
 
 from crossfire.corpus import (
+    DiffReport,
+    DiffRuleResult,
     LabeledEntry,
     diff_corpora,
     evaluate_corpus,
@@ -203,25 +205,26 @@ class TestDiffCorpora:
             LabeledEntry(text="ijkl"),
         ]
         result = diff_corpora(rules, corpus_a, corpus_b)
-        assert result["entries_a"] == 3
-        assert result["entries_b"] == 3
+        assert isinstance(result, DiffReport)
+        assert result.entries_a == 3
+        assert result.entries_b == 3
 
         # digits: 2/3 in A, 0/3 in B → significant drift
-        digits_r = next(r for r in result["results"] if r["rule"] == "digits")
-        assert digits_r["significant"] is True
+        digits_r = next(r for r in result.results if r.rule == "digits")
+        assert digits_r.significant is True
 
     def test_no_drift(self):
         rules = [_make_rule("any", r".+")]
         corpus_a = [LabeledEntry(text="hello")]
         corpus_b = [LabeledEntry(text="world")]
         result = diff_corpora(rules, corpus_a, corpus_b)
-        any_r = next(r for r in result["results"] if r["rule"] == "any")
-        assert any_r["drift"] == 0.0
+        any_r = next(r for r in result.results if r.rule == "any")
+        assert any_r.drift == 0.0
 
     def test_empty_corpora(self):
         rules = [_make_rule("test", r"\d+")]
         result = diff_corpora(rules, [], [])
-        assert result["rules_with_matches"] == 0
+        assert result.rules_with_matches == 0
 
 
 class TestEvaluateCli:

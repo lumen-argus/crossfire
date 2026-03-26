@@ -313,7 +313,8 @@ def diff_cmd(
     )
 
     if fmt == "json":
-        content = json.dumps(result, indent=2, default=str)
+        from dataclasses import asdict
+        content = json.dumps(asdict(result), indent=2, default=str)
         if output:
             Path(output).write_text(content)
             click.echo(f"Report written to {output}")
@@ -434,33 +435,33 @@ def _evaluation_to_dict(report: object) -> dict:
     }
 
 
-def _render_diff_table(result: dict, output: Optional[str]) -> None:
+def _render_diff_table(result: object, output: Optional[str]) -> None:
     """Render differential analysis as a table."""
-    name_a = result["name_a"]
-    name_b = result["name_b"]
+    from crossfire.corpus import DiffReport
+    report: DiffReport = result  # type: ignore[assignment]
 
     click.echo(f"\n{'=' * 72}")
     click.echo(f"  Crossfire Differential Analysis")
     click.echo(
-        f"  {name_a}: {result['entries_a']} entries | "
-        f"{name_b}: {result['entries_b']} entries"
+        f"  {report.name_a}: {report.entries_a} entries | "
+        f"{report.name_b}: {report.entries_b} entries"
     )
     click.echo(f"{'=' * 72}\n")
 
-    significant = [r for r in result["results"] if r.get("significant")]
+    significant = [r for r in report.results if r.significant]
     if significant:
         click.echo(f"  Rules with significant drift ({len(significant)}):")
         click.echo(f"  {'-' * 65}")
         click.echo(
-            f"  {'Rule':<30} {name_a + ' %':>10} {name_b + ' %':>10} {'Drift':>8}"
+            f"  {'Rule':<30} {report.name_a + ' %':>10} {report.name_b + ' %':>10} {'Drift':>8}"
         )
         click.echo(f"  {'-' * 65}")
         for r in significant[:30]:
             click.echo(
-                f"  {r['rule']:<30} "
-                f"{r[f'rate_{name_a}'] * 100:>9.1f}% "
-                f"{r[f'rate_{name_b}'] * 100:>9.1f}% "
-                f"{r['drift'] * 100:>7.1f}%"
+                f"  {r.rule:<30} "
+                f"{r.rate_a * 100:>9.1f}% "
+                f"{r.rate_b * 100:>9.1f}% "
+                f"{r.drift * 100:>7.1f}%"
             )
         click.echo()
     else:
@@ -468,7 +469,8 @@ def _render_diff_table(result: dict, output: Optional[str]) -> None:
 
     if output:
         import json
-        Path(output).write_text(json.dumps(result, indent=2, default=str))
+        from dataclasses import asdict
+        Path(output).write_text(json.dumps(asdict(report), indent=2, default=str))
         click.echo(f"  Full report written to {output}")
 
 

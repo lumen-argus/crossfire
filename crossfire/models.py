@@ -4,6 +4,26 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from enum import Enum
+
+
+class Relationship(str, Enum):
+    """Classification of how two rules relate."""
+
+    DUPLICATE = "duplicate"
+    SUBSET = "subset"
+    SUPERSET = "superset"
+    OVERLAP = "overlap"
+    DISJOINT = "disjoint"
+
+
+class Recommendation(str, Enum):
+    """Recommended action for an overlapping pair."""
+
+    KEEP_A = "keep_a"
+    KEEP_B = "keep_b"
+    KEEP_BOTH = "keep_both"
+    REVIEW = "review"
 
 
 @dataclass
@@ -45,8 +65,8 @@ class OverlapResult:
     overlap_a_to_b: float
     overlap_b_to_a: float
     jaccard: float
-    relationship: str  # duplicate, subset, superset, overlap, disjoint
-    recommendation: str  # keep_a, keep_b, keep_both, review
+    relationship: Relationship
+    recommendation: Recommendation
     reason: str = ""
     ci_a_to_b: tuple[float, float] | None = None  # 95% CI for overlap_a_to_b
     ci_b_to_a: tuple[float, float] | None = None  # 95% CI for overlap_b_to_a

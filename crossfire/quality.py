@@ -84,14 +84,16 @@ def assess_quality(
             if rule.compiled.search(s):
                 random_match_counts[rule.name] += 1
 
-    results: list[RuleQuality] = []
-    for rule in rules:
-        quality = _assess_single_rule(
-            rule, matrix, corpus_sizes, overlap_counts,
-            unique_coverage, random_match_counts,
-            len(random_corpus), broad_threshold,
-        )
-        results.append(quality)
+    assessor = _QualityAssessor(
+        matrix=matrix,
+        corpus_sizes=corpus_sizes,
+        overlap_counts=overlap_counts,
+        unique_coverage=unique_coverage,
+        random_match_counts=random_match_counts,
+        random_corpus_size=len(random_corpus),
+        broad_threshold=broad_threshold,
+    )
+    results = [assessor.assess(rule) for rule in rules]
 
     broad_patterns = [r for r in results if r.is_broad]
     low_spec = [r for r in results if r.specificity < 0.1]
@@ -149,60 +151,72 @@ def assess_quality(
     return report
 
 
-def _assess_single_rule(
-    rule: Rule,
-    matrix: MatchMatrix,
-    corpus_sizes: dict[str, int],
-    overlap_counts: dict[str, int],
-    unique_coverage: dict[str, int],
-    random_match_counts: dict[str, int],
-    random_corpus_size: int,
-    broad_threshold: int,
-) -> RuleQuality:
-    """Assess quality metrics for a single rule."""
-    random_matches = random_match_counts.get(rule.name, 0)
-    specificity = 1.0 - (random_matches / random_corpus_size) if random_corpus_size else 1.0
+class _QualityAssessor:
+    """Holds pre-computed data for per-rule quality assessment."""
 
-    fp_potential = 0
-    rule_matches = matrix.get(rule.name, {})
-    for other_rule, count in rule_matches.items():
-        if other_rule != rule.name and count > 0:
-            fp_potential += count
+    def __init__(
+        self,
+        matrix: MatchMatrix,
+        corpus_sizes: dict[str, int],
+        overlap_counts: dict[str, int],
+        unique_coverage: dict[str, int],
+        random_match_counts: dict[str, int],
+        random_corpus_size: int,
+        broad_threshold: int,
+    ) -> None:
+        self.matrix = matrix
+        self.corpus_sizes = corpus_sizes
+        self.overlap_counts = overlap_counts
+        self.unique_coverage = unique_coverage
+        self.random_match_counts = random_match_counts
+        self.random_corpus_size = random_corpus_size
+        self.broad_threshold = broad_threshold
 
-    complexity = _pattern_complexity(rule.pattern)
-    ovr_count = overlap_counts.get(rule.name, 0)
-    unique = unique_coverage.get(rule.name, 0)
-    actual = corpus_sizes.get(rule.name, 0)
-    is_broad = ovr_count > broad_threshold
+    def assess(self, rule: Rule) -> RuleQuality:
+        """Assess quality metrics for a single rule."""
+        random_matches = self.random_match_counts.get(rule.name, 0)
+        specificity = 1.0 - (random_matches / self.random_corpus_size) if self.random_corpus_size else 1.0
 
-    flags: list[str] = []
-    if specificity < 0.1:
-        flags.append(f"Low specificity ({specificity:.2f}) — matches {(1-specificity)*100:.0f}% of random strings")
-    if is_broad:
-        flags.append(f"Broad pattern — overlaps with {ovr_count} rules")
-    if unique == 0 and actual > 0:
-        flags.append("Zero unique coverage — fully redundant")
-    if complexity > 50:
-        flags.append(f"High complexity ({complexity} AST nodes)")
+        fp_potential = 0
+        rule_matches = self.matrix.get(rule.name, {})
+        for other_rule, count in rule_matches.items():
+            if other_rule != rule.name and count > 0:
+                fp_potential += count
 
-    log.debug(
-        "Rule '%s': specificity=%.2f, fp_potential=%d, complexity=%d, "
-        "unique=%d, overlaps=%d%s",
-        rule.name, specificity, fp_potential, complexity, unique, ovr_count,
-        " [BROAD]" if is_broad else "",
-    )
+        complexity = _pattern_complexity(rule.pattern)
+        ovr_count = self.overlap_counts.get(rule.name, 0)
+        unique = self.unique_coverage.get(rule.name, 0)
+        actual = self.corpus_sizes.get(rule.name, 0)
+        is_broad = ovr_count > self.broad_threshold
 
-    return RuleQuality(
-        name=rule.name,
-        source=rule.source,
-        specificity=round(specificity, 4),
-        false_positive_potential=fp_potential,
-        pattern_complexity=complexity,
-        unique_coverage=unique,
-        is_broad=is_broad,
-        overlap_count=ovr_count,
-        flags=flags,
-    )
+        flags: list[str] = []
+        if specificity < 0.1:
+            flags.append(f"Low specificity ({specificity:.2f}) — matches {(1-specificity)*100:.0f}% of random strings")
+        if is_broad:
+            flags.append(f"Broad pattern — overlaps with {ovr_count} rules")
+        if unique == 0 and actual > 0:
+            flags.append("Zero unique coverage — fully redundant")
+        if complexity > 50:
+            flags.append(f"High complexity ({complexity} AST nodes)")
+
+        log.debug(
+            "Rule '%s': specificity=%.2f, fp_potential=%d, complexity=%d, "
+            "unique=%d, overlaps=%d%s",
+            rule.name, specificity, fp_potential, complexity, unique, ovr_count,
+            " [BROAD]" if is_broad else "",
+        )
+
+        return RuleQuality(
+            name=rule.name,
+            source=rule.source,
+            specificity=round(specificity, 4),
+            false_positive_potential=fp_potential,
+            pattern_complexity=complexity,
+            unique_coverage=unique,
+            is_broad=is_broad,
+            overlap_count=ovr_count,
+            flags=flags,
+        )
 
 
 def _compute_overlap_counts(

@@ -9,7 +9,7 @@ import logging
 from dataclasses import asdict
 from typing import TextIO
 
-from crossfire.models import AnalysisReport, OverlapResult
+from crossfire.models import AnalysisReport, OverlapResult, Relationship
 
 log = logging.getLogger("crossfire.reporter")
 
@@ -63,7 +63,7 @@ def render_table(report: AnalysisReport, output: TextIO) -> None:
         )
         output.write(f"  {'-' * 68}\n")
         for r in subsets:
-            pct = r.overlap_a_to_b if r.relationship == "subset" else r.overlap_b_to_a
+            pct = r.overlap_a_to_b if r.relationship == Relationship.SUBSET else r.overlap_b_to_a
             output.write(
                 f"  {r.rule_a:<25} {r.rule_b:<25} {pct * 100:>7.0f}% "
                 f" {_short_rec(r.recommendation):>10}\n"
@@ -257,7 +257,7 @@ def _short_rec(rec: str) -> str:
         "keep_b": "Keep B",
         "keep_both": "Keep both",
         "review": "Review",
-    }.get(rec, rec)
+    }.get(str(rec), str(rec))
 
 
 def _format_duration(seconds: object) -> str:

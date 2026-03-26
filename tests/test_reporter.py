@@ -6,7 +6,7 @@ import csv
 import io
 import json
 
-from crossfire.models import AnalysisReport, ClusterInfo, OverlapResult
+from crossfire.models import AnalysisReport, ClusterInfo, OverlapResult, Recommendation, Relationship
 from crossfire.reporter import render_csv, render_json, render_summary, render_table
 
 
@@ -23,8 +23,8 @@ def _make_report(
             a_matches_b_corpus=45, b_matches_a_corpus=42,
             a_corpus_size=50, b_corpus_size=50,
             overlap_a_to_b=0.9, overlap_b_to_a=0.84,
-            jaccard=0.87, relationship="duplicate",
-            recommendation="keep_a", reason="Higher priority",
+            jaccard=0.87, relationship=Relationship.DUPLICATE,
+            recommendation=Recommendation.KEEP_A, reason="Higher priority",
         )
         for i in range(duplicates)
     ]
@@ -35,8 +35,8 @@ def _make_report(
             a_matches_b_corpus=48, b_matches_a_corpus=10,
             a_corpus_size=50, b_corpus_size=50,
             overlap_a_to_b=0.96, overlap_b_to_a=0.2,
-            jaccard=0.55, relationship="subset",
-            recommendation="keep_a", reason="More comprehensive",
+            jaccard=0.55, relationship=Relationship.SUBSET,
+            recommendation=Recommendation.KEEP_A, reason="More comprehensive",
         )
         for i in range(subsets)
     ]
@@ -47,8 +47,8 @@ def _make_report(
             a_matches_b_corpus=20, b_matches_a_corpus=15,
             a_corpus_size=50, b_corpus_size=50,
             overlap_a_to_b=0.4, overlap_b_to_a=0.3,
-            jaccard=0.3, relationship="overlap",
-            recommendation="review", reason="Partial overlap",
+            jaccard=0.3, relationship=Relationship.OVERLAP,
+            recommendation=Recommendation.REVIEW, reason="Partial overlap",
         )
         for i in range(overlaps)
     ]
