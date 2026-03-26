@@ -1,0 +1,114 @@
+name: "Crossfire Rule Overlap Check"
+description: "Detect duplicate and overlapping regex detection rules"
+branding:
+  icon: "search"
+  color: "orange"
+
+inputs:
+  rules:
+    description: "Space-separated paths to rule files"
+    required: true
+  command:
+    description: "Command to run: scan or compare"
+    required: false
+    default: "scan"
+  threshold:
+    description: "Overlap threshold (0.0-1.0)"
+    required: false
+    default: "0.8"
+  samples:
+    description: "Corpus strings per rule"
+    required: false
+    default: "50"
+  format:
+    description: "Output format: json, table, csv, summary"
+    required: false
+    default: "table"
+  fail-on-duplicate:
+    description: "Fail if duplicates found"
+    required: false
+    default: "true"
+  skip-invalid:
+    description: "Skip rules with invalid regexes"
+    required: false
+    default: "false"
+  crossfire-version:
+    description: "Crossfire version to install"
+    required: false
+    default: "latest"
+
+outputs:
+  duplicates:
+    description: "Number of duplicate pairs found"
+    value: ${{ steps.run.outputs.duplicates }}
+  report:
+    description: "Path to the JSON report file"
+    value: ${{ steps.run.outputs.report }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install Crossfire
+      shell: bash
+      env:
+        CF_VERSION: ${{ inputs.crossfire-version }}
+      run: |
+        if [ "$CF_VERSION" = "latest" ]; then
+          pip install crossfire
+        else
+          pip install "crossfire==$CF_VERSION"
+        fi
+
+    - name: Run Crossfire
+      id: run
+      shell: bash
+      env:
+        CF_COMMAND: ${{ inputs.command }}
+        CF_RULES: ${{ inputs.rules }}
+        CF_THRESHOLD: ${{ inputs.threshold }}
+        CF_SAMPLES: ${{ inputs.samples }}
+        CF_FORMAT: ${{ inputs.format }}
+        CF_FAIL_DUP: ${{ inputs.fail-on-duplicate }}
+        CF_SKIP_INVALID: ${{ inputs.skip-invalid }}
+      run: |
+        REPORT_PATH="${RUNNER_TEMP}/crossfire-report.json"
+        echo "report=$REPORT_PATH" >> "$GITHUB_OUTPUT"
+
+        # Build command arguments
+        CMD_ARGS="$CF_COMMAND $CF_RULES --threshold $CF_THRESHOLD --samples $CF_SAMPLES"
+
+        if [ "$CF_SKIP_INVALID" = "true" ]; then
+          CMD_ARGS="$CMD_ARGS --skip-invalid"
+        fi
+
+        # Run with JSON output to file for structured outputs
+        crossfire $CMD_ARGS --format json --output "$REPORT_PATH"
+        CF_EXIT=$?
+
+        # Extract duplicate count from report
+        if [ -f "$REPORT_PATH" ]; then
+          DUPS=$(python3 -c "
+        import json, sys
+        try:
+            r = json.load(open(sys.argv[1]))
+            print(r.get('summary', {}).get('duplicate_pairs', 0))
+        except Exception:
+            print(0)
+        " "$REPORT_PATH")
+          echo "duplicates=$DUPS" >> "$GITHUB_OUTPUT"
+        else
+          echo "duplicates=0" >> "$GITHUB_OUTPUT"
+        fi
+
+        # Display in user-requested format
+        if [ "$CF_FORMAT" != "json" ]; then
+          crossfire $CMD_ARGS --format "$CF_FORMAT" || true
+        fi
+
+        # Apply fail-on-duplicate exit code
+        if [ "$CF_FAIL_DUP" = "true" ] && [ "$DUPS" != "0" ] && [ "$DUPS" != "" ]; then
+          echo "::error::Crossfire found $DUPS duplicate rule pair(s)"
+          exit 1
+        fi
+
+        exit $CF_EXIT

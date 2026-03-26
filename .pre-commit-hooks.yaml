@@ -1,0 +1,15 @@
+- id: crossfire-scan
+  name: Crossfire rule overlap scan
+  description: Check rule files for internal duplicates and overlaps
+  entry: crossfire scan --fail-on-duplicate
+  language: python
+  types_or: [json, yaml, toml]
+  additional_dependencies: []
+
+- id: crossfire-validate
+  name: Crossfire rule validation
+  description: Validate regex patterns in rule files
+  entry: crossfire validate
+  language: python
+  types_or: [json, yaml, toml]
+  additional_dependencies: []

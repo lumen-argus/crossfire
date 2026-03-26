@@ -71,6 +71,13 @@ crossfire evaluate-git rules.json --repo /path     # Test rules on git history
 crossfire diff rules.json --corpus-a a.jsonl --corpus-b b.jsonl  # Coverage drift
 ```
 
+## CI Integration
+
+- `.github/workflows/test.yml` — pytest + ruff on push/PR (Python 3.10-3.13)
+- `.github/workflows/release.yml` — PyPI publish on tag (trusted publishing)
+- `action.yml` — GitHub Action for users to run crossfire in their CI
+- `.pre-commit-hooks.yaml` — pre-commit hooks (crossfire-scan, crossfire-validate)
+
 ## Dependencies
 
 Runtime: `rstr>=3.2`, `click>=8.0`, `pyyaml>=6.0`
