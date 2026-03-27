@@ -2,12 +2,15 @@
 requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.packages.find]
+include = ["crossfire*"]
+
 [project]
 name = "crossfire-rules"
 version = "0.1.0"
 description = "Regex rule overlap analyzer for DLP, secret scanning, SAST, and IDS tools"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
 requires-python = ">=3.10"
 authors = [
     {name = "Crossfire Contributors"}
@@ -16,7 +19,6 @@ keywords = ["regex", "overlap", "dedup", "dlp", "secret-scanning", "sast", "rule
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
