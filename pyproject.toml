@@ -46,8 +46,8 @@ crossfire = "crossfire.cli:main"
 [project.entry-points."crossfire.adapters"]
 
 [project.urls]
-Homepage = "https://github.com/slima4/crossfire"
-Repository = "https://github.com/slima4/crossfire"
+Homepage = "https://github.com/lumen-argus/crossfire"
+Repository = "https://github.com/lumen-argus/crossfire"
 
 [tool.ruff]
 target-version = "py310"
