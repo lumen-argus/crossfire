@@ -3,17 +3,14 @@
 from __future__ import annotations
 
 import re
-from collections import defaultdict
-
-import pytest
 
 from crossfire.models import CorpusEntry, Rule
 from crossfire.quality import (
     QualityReport,
-    assess_quality,
     _compute_overlap_counts,
     _compute_unique_coverage,
     _pattern_complexity,
+    assess_quality,
 )
 
 
@@ -101,10 +98,7 @@ class TestAssessQuality:
         ]
         corpus = [
             CorpusEntry(text="AKIA1234567890ABCDEF", source_rule="tight"),
-        ] + [
-            CorpusEntry(text=f"abc{i}", source_rule="loose")
-            for i in range(10)
-        ]
+        ] + [CorpusEntry(text=f"abc{i}", source_rule="loose") for i in range(10)]
         matrix = {
             "tight": {"tight": 1},
             "loose": {"tight": 1, "loose": 10},
@@ -122,7 +116,7 @@ class TestAssessQuality:
 
     def test_broad_detection(self):
         # Create a rule that overlaps with 6 others (above threshold of 5)
-        rules = [_make_rule(f"rule_{i}", f"[a-z]{{5}}") for i in range(7)]
+        rules = [_make_rule(f"rule_{i}", "[a-z]{5}") for i in range(7)]
         matrix = {
             "rule_0": {f"rule_{i}": 5 for i in range(7)},
         }
@@ -137,8 +131,12 @@ class TestAssessQuality:
         sizes = {f"rule_{i}": 10 for i in range(7)}
 
         report = assess_quality(
-            rules, corpus, matrix, sizes,
-            broad_threshold=5, seed=42,
+            rules,
+            corpus,
+            matrix,
+            sizes,
+            broad_threshold=5,
+            seed=42,
         )
         broad_names = [r.name for r in report.broad_patterns]
         assert "rule_0" in broad_names

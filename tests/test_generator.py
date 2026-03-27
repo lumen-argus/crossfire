@@ -41,8 +41,10 @@ class TestPositiveGeneration:
 
     def test_respects_max_length(self):
         gen = CorpusGenerator(
-            samples_per_rule=20, negative_samples=0,
-            max_string_length=32, seed=42,
+            samples_per_rule=20,
+            negative_samples=0,
+            max_string_length=32,
+            seed=42,
         )
         rule = _make_rule("long", r"[a-zA-Z0-9]{10,100}")
         entries = gen.generate([rule])
@@ -66,8 +68,9 @@ class TestNegativeGeneration:
         negatives = [e for e in entries if e.is_negative]
         assert len(negatives) > 0
         for e in negatives:
-            assert not rule.compiled.search(e.text), \
+            assert not rule.compiled.search(e.text), (
                 f"Negative '{e.text}' should NOT match {rule.pattern}"
+            )
 
     def test_no_negatives_when_zero(self):
         gen = CorpusGenerator(samples_per_rule=20, negative_samples=0, seed=42)
@@ -112,7 +115,7 @@ class TestFailFast:
         )
         # Pattern that generates only 1 unique string
         rule = _make_rule("single", r"^exact_match_only$")
-        with pytest.raises(GenerationError, match="only .* valid samples"):
+        with pytest.raises(GenerationError, match=r"only .* valid samples"):
             gen.generate([rule])
 
     def test_generation_failure_skip(self):
@@ -154,8 +157,7 @@ class TestEdgeCases:
             assert rule.compiled.search(e.text)
 
     def test_unicode_pattern(self):
-        gen = CorpusGenerator(samples_per_rule=15, negative_samples=0, seed=42,
-                              min_valid_samples=5)
+        gen = CorpusGenerator(samples_per_rule=15, negative_samples=0, seed=42, min_valid_samples=5)
         rule = _make_rule("unicode", r"[a-zA-Z0-9]{10}")
         entries = gen.generate([rule])
         assert len([e for e in entries if not e.is_negative]) >= 5

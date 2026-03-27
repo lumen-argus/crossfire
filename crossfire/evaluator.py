@@ -6,7 +6,6 @@ import logging
 import time
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from typing import Optional
 
 from crossfire.models import CorpusEntry, Rule
 
@@ -66,7 +65,7 @@ class Evaluator:
     def __init__(
         self,
         workers: int = 0,
-        partition_by: Optional[str] = None,
+        partition_by: str | None = None,
     ) -> None:
         """Initialize evaluator.
 
@@ -116,9 +115,7 @@ class Evaluator:
 
         duration = time.monotonic() - t0
         total_matches = sum(
-            count
-            for rule_counts in matrix.values()
-            for count in rule_counts.values()
+            count for rule_counts in matrix.values() for count in rule_counts.values()
         )
         log.info(
             "Cross-evaluation complete: %d positive matches in %.1fs",
@@ -180,8 +177,7 @@ class Evaluator:
 
         chunk_size = max(1, len(rule_patterns) // n_workers)
         chunks = [
-            rule_patterns[i: i + chunk_size]
-            for i in range(0, len(rule_patterns), chunk_size)
+            rule_patterns[i : i + chunk_size] for i in range(0, len(rule_patterns), chunk_size)
         ]
 
         matrix: MatchMatrix = defaultdict(lambda: defaultdict(int))

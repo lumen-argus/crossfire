@@ -101,7 +101,7 @@ class TestParallel:
         ]
 
         single = Evaluator(workers=1)
-        matrix_single = single.evaluate(rules, corpus)
+        single.evaluate(rules, corpus)
 
         # Force parallel by using more workers than rules
         parallel = Evaluator(workers=2)
@@ -166,8 +166,8 @@ class TestMatchMatrix:
 
         # matrix[rule_name] is a dict of {source_rule: count}
         assert isinstance(matrix, dict)
-        for rule_name, counts in matrix.items():
+        for counts in matrix.values():
             assert isinstance(counts, dict)
-            for source, count in counts.items():
+            for count in counts.values():
                 assert isinstance(count, int)
                 assert count >= 0

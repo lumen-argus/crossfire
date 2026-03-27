@@ -29,9 +29,7 @@ class TestSetupLogging:
         setup_logging(level="info", log_format="json")
         logger = logging.getLogger("crossfire")
         handler = logger.handlers[0]
-        record = logging.LogRecord(
-            "crossfire.test", logging.INFO, "", 0, "test message", (), None
-        )
+        record = logging.LogRecord("crossfire.test", logging.INFO, "", 0, "test message", (), None)
         output = handler.formatter.format(record)
         data = json.loads(output)
         assert data["msg"] == "test message"

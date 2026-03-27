@@ -11,7 +11,6 @@ import pytest
 
 from crossfire.corpus import (
     DiffReport,
-    DiffRuleResult,
     LabeledEntry,
     diff_corpora,
     evaluate_corpus,
@@ -24,7 +23,9 @@ from crossfire.models import Rule
 
 def _make_rule(name: str, pattern: str, tags: list[str] | None = None) -> Rule:
     return Rule(
-        name=name, pattern=pattern, compiled=re.compile(pattern),
+        name=name,
+        pattern=pattern,
+        compiled=re.compile(pattern),
         tags=tags or [],
     )
 
@@ -58,9 +59,11 @@ class TestLoadCorpusJsonl:
     def test_skips_empty_lines(self, tmp_path: Path):
         path = tmp_path / "corpus.jsonl"
         path.write_text(
-            json.dumps({"text": "a"}) + "\n"
+            json.dumps({"text": "a"})
+            + "\n"
             + "\n"  # empty
-            + json.dumps({"text": "b"}) + "\n"
+            + json.dumps({"text": "b"})
+            + "\n"
         )
         entries = load_corpus_jsonl(str(path))
         assert len(entries) == 2
@@ -68,9 +71,11 @@ class TestLoadCorpusJsonl:
     def test_skips_invalid_json(self, tmp_path: Path):
         path = tmp_path / "corpus.jsonl"
         path.write_text(
-            json.dumps({"text": "valid"}) + "\n"
+            json.dumps({"text": "valid"})
+            + "\n"
             + "not json\n"
-            + json.dumps({"text": "also valid"}) + "\n"
+            + json.dumps({"text": "also valid"})
+            + "\n"
         )
         entries = load_corpus_jsonl(str(path))
         assert len(entries) == 2
@@ -98,18 +103,21 @@ class TestLoadCorpusGit:
         subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True)
         subprocess.run(
             ["git", "config", "user.email", "test@test.com"],
-            cwd=tmp_path, capture_output=True,
+            cwd=tmp_path,
+            capture_output=True,
         )
         subprocess.run(
             ["git", "config", "user.name", "Test"],
-            cwd=tmp_path, capture_output=True,
+            cwd=tmp_path,
+            capture_output=True,
         )
         test_file = tmp_path / "secrets.txt"
         test_file.write_text("AKIAIOSFODNN7EXAMPLE\nsome_password=hunter2\n")
         subprocess.run(["git", "add", "."], cwd=tmp_path, capture_output=True)
         subprocess.run(
             ["git", "commit", "-m", "add secrets"],
-            cwd=tmp_path, capture_output=True,
+            cwd=tmp_path,
+            capture_output=True,
         )
 
         entries = load_corpus_git(tmp_path, max_commits=10)
@@ -231,19 +239,28 @@ class TestEvaluateCli:
     def test_evaluate_command(self, tmp_path: Path, sample_rules_path: str):
         corpus_path = tmp_path / "corpus.jsonl"
         corpus_path.write_text(
-            json.dumps({"text": "AKIAIOSFODNN7EXAMPLE1", "label": "aws_access_key"}) + "\n"
-            + json.dumps({"text": "test@example.com"}) + "\n"
+            json.dumps({"text": "AKIAIOSFODNN7EXAMPLE1", "label": "aws_access_key"})
+            + "\n"
+            + json.dumps({"text": "test@example.com"})
+            + "\n"
         )
 
         from click.testing import CliRunner
+
         from crossfire.cli import main
 
         runner = CliRunner()
-        result = runner.invoke(main, [
-            "evaluate", sample_rules_path,
-            "--corpus", str(corpus_path),
-            "--format", "summary",
-        ])
+        result = runner.invoke(
+            main,
+            [
+                "evaluate",
+                sample_rules_path,
+                "--corpus",
+                str(corpus_path),
+                "--format",
+                "summary",
+            ],
+        )
         assert result.exit_code == 0
         assert "Evaluated" in result.output
 
@@ -251,22 +268,27 @@ class TestEvaluateCli:
         corpus_a = tmp_path / "a.jsonl"
         corpus_b = tmp_path / "b.jsonl"
         corpus_a.write_text(
-            json.dumps({"text": "12345678"}) + "\n"
-            + json.dumps({"text": "abcdefgh"}) + "\n"
+            json.dumps({"text": "12345678"}) + "\n" + json.dumps({"text": "abcdefgh"}) + "\n"
         )
         corpus_b.write_text(
-            json.dumps({"text": "abcdefgh"}) + "\n"
-            + json.dumps({"text": "ijklmnop"}) + "\n"
+            json.dumps({"text": "abcdefgh"}) + "\n" + json.dumps({"text": "ijklmnop"}) + "\n"
         )
 
         from click.testing import CliRunner
+
         from crossfire.cli import main
 
         runner = CliRunner()
-        result = runner.invoke(main, [
-            "diff", sample_rules_path,
-            "--corpus-a", str(corpus_a),
-            "--corpus-b", str(corpus_b),
-        ])
+        result = runner.invoke(
+            main,
+            [
+                "diff",
+                sample_rules_path,
+                "--corpus-a",
+                str(corpus_a),
+                "--corpus-b",
+                str(corpus_b),
+            ],
+        )
         assert result.exit_code == 0
         assert "Differential Analysis" in result.output

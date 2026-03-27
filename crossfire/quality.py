@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import logging
 import random
-import re
 import string
+
 try:
     import re._parser as sre_parse  # Python 3.13+
 except ImportError:
-    import sre_parse  # type: ignore[no-redef]  # Python < 3.13
+    import sre_parse  # Python < 3.13
 from dataclasses import dataclass, field
-from typing import Optional
 
 from crossfire.evaluator import MatchMatrix
 from crossfire.models import CorpusEntry, Rule
@@ -53,7 +52,7 @@ def assess_quality(
     *,
     broad_threshold: int = 5,
     specificity_samples: int = 200,
-    seed: Optional[int] = None,
+    seed: int | None = None,
 ) -> QualityReport:
     """Assess quality of all rules.
 
@@ -97,18 +96,19 @@ def assess_quality(
 
     broad_patterns = [r for r in results if r.is_broad]
     low_spec = [r for r in results if r.specificity < 0.1]
-    redundant = [r for r in results if r.unique_coverage == 0
-                 and corpus_sizes.get(r.name, 0) > 0]
+    redundant = [r for r in results if r.unique_coverage == 0 and corpus_sizes.get(r.name, 0) > 0]
 
     if broad_patterns:
         log.info(
             "%d broad patterns detected (>%d overlap pairs each)",
-            len(broad_patterns), broad_threshold,
+            len(broad_patterns),
+            broad_threshold,
         )
         for bp in broad_patterns:
             log.info(
                 "  Broad pattern: '%s' overlaps with %d rules",
-                bp.name, bp.overlap_count,
+                bp.name,
+                bp.overlap_count,
             )
 
     if low_spec:
@@ -134,18 +134,20 @@ def assess_quality(
             "broad_patterns": len(broad_patterns),
             "low_specificity": len(low_spec),
             "fully_redundant": len(redundant),
-            "avg_specificity": round(
-                sum(r.specificity for r in results) / len(results), 3
-            ) if results else 0,
-            "avg_complexity": round(
-                sum(r.pattern_complexity for r in results) / len(results), 1
-            ) if results else 0,
+            "avg_specificity": round(sum(r.specificity for r in results) / len(results), 3)
+            if results
+            else 0,
+            "avg_complexity": round(sum(r.pattern_complexity for r in results) / len(results), 1)
+            if results
+            else 0,
         },
     )
 
     log.info(
         "Quality assessment complete: %d broad, %d low-specificity, %d redundant",
-        len(broad_patterns), len(low_spec), len(redundant),
+        len(broad_patterns),
+        len(low_spec),
+        len(redundant),
     )
 
     return report
@@ -175,7 +177,9 @@ class _QualityAssessor:
     def assess(self, rule: Rule) -> RuleQuality:
         """Assess quality metrics for a single rule."""
         random_matches = self.random_match_counts.get(rule.name, 0)
-        specificity = 1.0 - (random_matches / self.random_corpus_size) if self.random_corpus_size else 1.0
+        specificity = (
+            1.0 - (random_matches / self.random_corpus_size) if self.random_corpus_size else 1.0
+        )
 
         fp_potential = 0
         rule_matches = self.matrix.get(rule.name, {})
@@ -191,7 +195,10 @@ class _QualityAssessor:
 
         flags: list[str] = []
         if specificity < 0.1:
-            flags.append(f"Low specificity ({specificity:.2f}) — matches {(1-specificity)*100:.0f}% of random strings")
+            flags.append(
+                f"Low specificity ({specificity:.2f}) — "
+                f"matches {(1 - specificity) * 100:.0f}% of random strings"
+            )
         if is_broad:
             flags.append(f"Broad pattern — overlaps with {ovr_count} rules")
         if unique == 0 and actual > 0:
@@ -200,9 +207,13 @@ class _QualityAssessor:
             flags.append(f"High complexity ({complexity} AST nodes)")
 
         log.debug(
-            "Rule '%s': specificity=%.2f, fp_potential=%d, complexity=%d, "
-            "unique=%d, overlaps=%d%s",
-            rule.name, specificity, fp_potential, complexity, unique, ovr_count,
+            "Rule '%s': specificity=%.2f, fp_potential=%d, complexity=%d, unique=%d, overlaps=%d%s",
+            rule.name,
+            specificity,
+            fp_potential,
+            complexity,
+            unique,
+            ovr_count,
             " [BROAD]" if is_broad else "",
         )
 
@@ -291,15 +302,15 @@ def _pattern_complexity(pattern: str) -> int:
 def _count_nodes(parsed: sre_parse.SubPattern) -> int:
     """Recursively count nodes in a parsed regex."""
     count = 0
-    for op, av in parsed:
+    for _op, av in parsed:
         count += 1
         if isinstance(av, sre_parse.SubPattern):
             count += _count_nodes(av)
-        elif isinstance(av, (list, tuple)):
+        elif isinstance(av, list | tuple):
             for item in av:
                 if isinstance(item, sre_parse.SubPattern):
                     count += _count_nodes(item)
-                elif isinstance(item, (list, tuple)):
+                elif isinstance(item, list | tuple):
                     for sub in item:
                         if isinstance(sub, sre_parse.SubPattern):
                             count += _count_nodes(sub)

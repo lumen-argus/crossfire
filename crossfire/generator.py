@@ -4,11 +4,8 @@ from __future__ import annotations
 
 import logging
 import random
-import re
-import signal
 import string
 import time
-from typing import Optional
 
 import rstr
 
@@ -32,7 +29,7 @@ class CorpusGenerator:
         negative_samples: int = 10,
         max_string_length: int = 256,
         generation_timeout_s: float = 2.0,
-        seed: Optional[int] = None,
+        seed: int | None = None,
         min_valid_samples: int = 10,
     ) -> None:
         self.samples_per_rule = samples_per_rule
@@ -109,13 +106,9 @@ class CorpusGenerator:
             len(negative),
         )
 
-        entries = [
-            CorpusEntry(text=s, source_rule=rule.name, is_negative=False)
-            for s in positive
-        ]
+        entries = [CorpusEntry(text=s, source_rule=rule.name, is_negative=False) for s in positive]
         entries.extend(
-            CorpusEntry(text=s, source_rule=rule.name, is_negative=True)
-            for s in negative
+            CorpusEntry(text=s, source_rule=rule.name, is_negative=True) for s in negative
         )
         return entries
 

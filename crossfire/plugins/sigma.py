@@ -42,7 +42,7 @@ class SigmaAdapter:
         if p.suffix.lower() not in (".yaml", ".yml"):
             return False
         try:
-            with open(p, "r", errors="replace") as f:
+            with open(p, errors="replace") as f:
                 content = f.read(2048)
             return "detection:" in content and ("logsource:" in content or "title:" in content)
         except OSError:
@@ -67,7 +67,9 @@ class SigmaAdapter:
         return results
 
     def _convert_rule(
-        self, rule: dict[str, Any], path: str,
+        self,
+        rule: dict[str, Any],
+        path: str,
     ) -> list[dict[str, object]]:
         """Extract regex patterns from a Sigma rule."""
         rule_id = rule.get("id", rule.get("title", ""))
@@ -105,23 +107,26 @@ class SigmaAdapter:
 
         results: list[dict[str, object]] = []
         for i, (field_name, pattern) in enumerate(regexes):
-            name = f"{rule_id}:{field_name}_{i+1}" if len(regexes) > 1 else str(rule_id)
+            name = f"{rule_id}:{field_name}_{i + 1}" if len(regexes) > 1 else str(rule_id)
             field_meta = dict(metadata)
             field_meta["sigma_field"] = field_name
 
-            results.append({
-                "name": name,
-                "pattern": pattern,
-                "detector": "sigma",
-                "severity": severity,
-                "tags": [str(t) for t in tags],
-                "metadata": field_meta,
-            })
+            results.append(
+                {
+                    "name": name,
+                    "pattern": pattern,
+                    "detector": "sigma",
+                    "severity": severity,
+                    "tags": [str(t) for t in tags],
+                    "metadata": field_meta,
+                }
+            )
 
         return results
 
     def _extract_regexes(
-        self, detection: dict[str, Any],
+        self,
+        detection: dict[str, Any],
     ) -> list[tuple[str, str]]:
         """Extract regex patterns from detection block.
 
@@ -145,7 +150,9 @@ class SigmaAdapter:
         return regexes
 
     def _extract_re_fields(
-        self, mapping: dict[str, Any], regexes: list[tuple[str, str]],
+        self,
+        mapping: dict[str, Any],
+        regexes: list[tuple[str, str]],
     ) -> None:
         """Extract |re modifier fields from a detection mapping."""
         for field, patterns in mapping.items():
@@ -154,7 +161,6 @@ class SigmaAdapter:
                 continue
             base_field = field.split("|")[0]
             if isinstance(patterns, list):
-                for p in patterns:
-                    regexes.append((base_field, str(p)))
+                regexes.extend((base_field, str(p)) for p in patterns)
             elif isinstance(patterns, str):
                 regexes.append((base_field, patterns))

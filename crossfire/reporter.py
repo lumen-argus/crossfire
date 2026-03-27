@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import csv
-import io
 import json
 import logging
 from dataclasses import asdict
 from enum import Enum
-from typing import TextIO
+from typing import Any, TextIO, cast
 
-from crossfire.models import AnalysisReport, OverlapResult, Recommendation, Relationship
+from crossfire.models import AnalysisReport, Recommendation, Relationship
 
 log = logging.getLogger("crossfire.reporter")
 
@@ -31,9 +30,9 @@ def render_table(report: AnalysisReport, output: TextIO) -> None:
     output.write(f"  Crossfire Analysis Report — {report.timestamp}\n")
     output.write(
         f"  Rules: {report.input_summary.get('total_rules', 0)} "
-        f"from {len(report.input_summary.get('files', []))} file(s) | "  # type: ignore[arg-type]
+        f"from {len(cast(list[str], report.input_summary.get('files', [])))} file(s) | "
         f"Corpus: {report.corpus_summary.get('total_strings', 0)} strings | "
-        f"Time: {_format_duration(report.evaluation_summary.get('duration_s', 0))}\n"  # type: ignore[arg-type]
+        f"Time: {_format_duration(report.evaluation_summary.get('duration_s', 0))}\n"
     )
     output.write(f"{'=' * 72}\n\n")
 
@@ -41,13 +40,9 @@ def render_table(report: AnalysisReport, output: TextIO) -> None:
     if report.duplicates:
         output.write(f"  Duplicates ({len(report.duplicates)} pairs)\n")
         output.write(f"  {'-' * 68}\n")
-        output.write(
-            f"  {'Rule A':<25} {'Rule B':<25} {'Jaccard':>8} {'Recommendation':>10}\n"
-        )
+        output.write(f"  {'Rule A':<25} {'Rule B':<25} {'Jaccard':>8} {'Recommendation':>10}\n")
         output.write(f"  {'-' * 68}\n")
         for r in report.duplicates:
-            src_a = _short_source(r.source_a)
-            src_b = _short_source(r.source_b)
             output.write(
                 f"  {r.rule_a:<25} {r.rule_b:<25} {r.jaccard:>7.2f} "
                 f" {_short_rec(r.recommendation):>10}\n"
@@ -75,9 +70,7 @@ def render_table(report: AnalysisReport, output: TextIO) -> None:
     if report.overlaps:
         output.write(f"  Overlaps ({len(report.overlaps)} pairs)\n")
         output.write(f"  {'-' * 68}\n")
-        output.write(
-            f"  {'Rule A':<25} {'Rule B':<25} {'A->B %':>8} {'B->A %':>8}\n"
-        )
+        output.write(f"  {'Rule A':<25} {'Rule B':<25} {'A->B %':>8} {'B->A %':>8}\n")
         output.write(f"  {'-' * 68}\n")
         for r in report.overlaps:
             output.write(
@@ -98,40 +91,42 @@ def render_table(report: AnalysisReport, output: TextIO) -> None:
     # Quality insights
     if report.quality:
         q = report.quality
-        broad = q.get("broad_patterns", [])
-        low_spec = q.get("low_specificity", [])
-        redundant = q.get("fully_redundant", [])
+        broad = cast(list[dict[str, Any]], q.get("broad_patterns", []))
+        low_spec = cast(list[dict[str, Any]], q.get("low_specificity", []))
+        redundant = cast(list[dict[str, Any]], q.get("fully_redundant", []))
         has_quality = broad or low_spec or redundant
 
         if has_quality:
-            output.write(f"  Quality Insights\n")
+            output.write("  Quality Insights\n")
             output.write(f"  {'-' * 68}\n")
             if broad:
                 output.write(f"  Broad patterns ({len(broad)}):\n")
                 for bp in broad[:10]:
                     output.write(
-                        f"    {bp['name']:<30} overlaps with {bp['overlap_count']} rules\n"  # type: ignore[index]
+                        f"    {bp['name']:<30} overlaps with {bp['overlap_count']} rules\n"
                     )
                 if len(broad) > 10:
                     output.write(f"    ... and {len(broad) - 10} more\n")
             if low_spec:
-                output.write(f"  Low specificity ({len(low_spec)} rules match >90% of random strings):\n")
+                output.write(
+                    f"  Low specificity ({len(low_spec)} rules match >90% of random strings):\n"
+                )
                 for ls in low_spec[:5]:
-                    output.write(
-                        f"    {ls['name']:<30} specificity: {ls['specificity']:.2f}\n"  # type: ignore[index]
-                    )
+                    output.write(f"    {ls['name']:<30} specificity: {ls['specificity']:.2f}\n")
                 if len(low_spec) > 5:
                     output.write(f"    ... and {len(low_spec) - 5} more\n")
             if redundant:
-                output.write(f"  Fully redundant ({len(redundant)} rules with zero unique coverage):\n")
+                output.write(
+                    f"  Fully redundant ({len(redundant)} rules with zero unique coverage):\n"
+                )
                 for rd in redundant[:5]:
-                    output.write(f"    {rd['name']}\n")  # type: ignore[index]
+                    output.write(f"    {rd['name']}\n")
                 if len(redundant) > 5:
                     output.write(f"    ... and {len(redundant) - 5} more\n")
             output.write("\n")
 
     # Summary
-    output.write(f"  Summary: ")
+    output.write("  Summary: ")
     parts = []
     if s.get("duplicate_pairs"):
         parts.append(f"Drop {s.get('rules_recommended_drop', 0)} rules")
@@ -152,19 +147,37 @@ def render_table(report: AnalysisReport, output: TextIO) -> None:
 def render_csv(report: AnalysisReport, output: TextIO) -> None:
     """Render report as CSV (one row per overlapping pair)."""
     writer = csv.writer(output)
-    writer.writerow([
-        "rule_a", "rule_b", "source_a", "source_b",
-        "overlap_a_to_b", "overlap_b_to_a", "jaccard",
-        "relationship", "recommendation", "reason",
-    ])
+    writer.writerow(
+        [
+            "rule_a",
+            "rule_b",
+            "source_a",
+            "source_b",
+            "overlap_a_to_b",
+            "overlap_b_to_a",
+            "jaccard",
+            "relationship",
+            "recommendation",
+            "reason",
+        ]
+    )
 
     all_results = report.duplicates + report.subsets + report.overlaps
     for r in all_results:
-        writer.writerow([
-            r.rule_a, r.rule_b, r.source_a, r.source_b,
-            f"{r.overlap_a_to_b:.4f}", f"{r.overlap_b_to_a:.4f}", f"{r.jaccard:.4f}",
-            r.relationship.value, r.recommendation.value, r.reason,
-        ])
+        writer.writerow(
+            [
+                r.rule_a,
+                r.rule_b,
+                r.source_a,
+                r.source_b,
+                f"{r.overlap_a_to_b:.4f}",
+                f"{r.overlap_b_to_a:.4f}",
+                f"{r.jaccard:.4f}",
+                r.relationship.value,
+                r.recommendation.value,
+                r.reason,
+            ]
+        )
 
     log.info("CSV report written (%d rows)", len(all_results))
 
@@ -190,9 +203,7 @@ def render_summary(report: AnalysisReport, output: TextIO) -> None:
         f"and {overlaps} partial overlap(s) across {clusters} cluster(s). "
     )
     if drop or review:
-        output.write(
-            f"Recommendation: drop {drop} rule(s), review {review} rule(s). "
-        )
+        output.write(f"Recommendation: drop {drop} rule(s), review {review} rule(s). ")
     else:
         output.write("No duplicates detected. ")
     if broad or redundant:
@@ -230,7 +241,7 @@ def _json_default(obj: object) -> object:
     return str(obj)
 
 
-def _report_to_dict(report: AnalysisReport) -> dict:
+def _report_to_dict(report: AnalysisReport) -> dict[str, Any]:
     """Convert report to a JSON-serializable dict."""
     return {
         "crossfire_version": report.crossfire_version,
@@ -273,7 +284,7 @@ def _short_rec(rec: Recommendation) -> str:
 
 def _format_duration(seconds: object) -> str:
     """Format duration in human-readable form."""
-    s = float(seconds) if seconds else 0.0
+    s = float(cast(Any, seconds)) if seconds else 0.0
     if s < 60:
         return f"{s:.1f}s"
     m = int(s // 60)

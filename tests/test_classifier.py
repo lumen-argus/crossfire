@@ -4,16 +4,17 @@ from __future__ import annotations
 
 import re
 
-import pytest
-
 from crossfire.classifier import Classifier
 from crossfire.models import Recommendation, Relationship, Rule
 
 
 def _make_rule(name: str, source: str = "test", priority: int = 0) -> Rule:
     return Rule(
-        name=name, pattern=".", compiled=re.compile("."),
-        source=source, priority=priority,
+        name=name,
+        pattern=".",
+        compiled=re.compile("."),
+        source=source,
+        priority=priority,
     )
 
 
@@ -267,5 +268,5 @@ class TestEmptyInputs:
     def test_zero_corpus(self):
         classifier = Classifier()
         rules = [_make_rule("a"), _make_rule("b")]
-        results, clusters = classifier.classify({}, rules, {"a": 0, "b": 0})
+        results, _clusters = classifier.classify({}, rules, {"a": 0, "b": 0})
         assert results == []

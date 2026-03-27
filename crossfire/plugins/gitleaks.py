@@ -47,7 +47,7 @@ class GitleaksAdapter:
             return False
 
         try:
-            with open(p, "r", errors="replace") as f:
+            with open(p, errors="replace") as f:
                 content = f.read(2048)
             return "[[rules]]" in content and ("regex" in content or "id" in content)
         except OSError:
@@ -73,7 +73,9 @@ class GitleaksAdapter:
 
         log.info(
             "GitLeaks adapter: loaded %d rules from %s (%d total in file)",
-            len(results), path, len(raw_rules),
+            len(results),
+            path,
+            len(raw_rules),
         )
         return results
 
@@ -83,13 +85,11 @@ class GitleaksAdapter:
             import tomllib
         except ImportError:
             try:
-                import tomli as tomllib  # type: ignore[no-redef]
-            except ImportError:
-                raise ImportError(
-                    "TOML support requires Python 3.11+ or 'tomli' package"
-                )
+                import tomli as tomllib
+            except ImportError as err:
+                raise ImportError("TOML support requires Python 3.11+ or 'tomli' package") from err
         with open(path, "rb") as f:
-            return tomllib.load(f)
+            return tomllib.load(f)  # type: ignore[no-any-return]
 
     def _convert_rule(
         self,

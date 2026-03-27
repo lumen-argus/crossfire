@@ -2,18 +2,15 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-import pytest
-
-from crossfire.plugins import find_adapter, get_adapters, register_adapter
+from crossfire.loader import load_rules
+from crossfire.plugins import find_adapter, get_adapters
 from crossfire.plugins.gitleaks import GitleaksAdapter
 from crossfire.plugins.semgrep import SemgrepAdapter
-from crossfire.plugins.yara import YaraAdapter
 from crossfire.plugins.sigma import SigmaAdapter
 from crossfire.plugins.snort import SnortAdapter
-from crossfire.loader import load_rules
+from crossfire.plugins.yara import YaraAdapter
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 GITLEAKS_FIXTURE = str(FIXTURES_DIR / "gitleaks_sample.toml")
@@ -166,20 +163,29 @@ class TestGitleaksIntegration:
     def test_scan_gitleaks_rules(self):
         """Full scan pipeline should work with GitLeaks rules."""
         from click.testing import CliRunner
+
         from crossfire.cli import main
 
         runner = CliRunner()
-        result = runner.invoke(main, [
-            "scan", GITLEAKS_FIXTURE,
-            "--format", "summary",
-            "--samples", "20",
-            "--seed", "42",
-        ])
+        result = runner.invoke(
+            main,
+            [
+                "scan",
+                GITLEAKS_FIXTURE,
+                "--format",
+                "summary",
+                "--samples",
+                "20",
+                "--seed",
+                "42",
+            ],
+        )
         assert result.exit_code == 0
         assert "Analyzed 5 rules" in result.output
 
     def test_validate_gitleaks_rules(self):
         from click.testing import CliRunner
+
         from crossfire.cli import main
 
         runner = CliRunner()
@@ -190,15 +196,24 @@ class TestGitleaksIntegration:
     def test_compare_gitleaks_vs_json(self, sample_rules_path: str):
         """Compare GitLeaks rules against JSON rules."""
         from click.testing import CliRunner
+
         from crossfire.cli import main
 
         runner = CliRunner()
-        result = runner.invoke(main, [
-            "compare", GITLEAKS_FIXTURE, sample_rules_path,
-            "--format", "summary",
-            "--samples", "20",
-            "--seed", "42",
-        ])
+        result = runner.invoke(
+            main,
+            [
+                "compare",
+                GITLEAKS_FIXTURE,
+                sample_rules_path,
+                "--format",
+                "summary",
+                "--samples",
+                "20",
+                "--seed",
+                "42",
+            ],
+        )
         assert result.exit_code == 0
         assert "Analyzed 10 rules" in result.output  # 5 gitleaks + 5 sample
 
@@ -245,16 +260,24 @@ class TestSemgrepAdapter:
 
     def test_scan_semgrep(self):
         from click.testing import CliRunner
+
         from crossfire.cli import main
 
         runner = CliRunner()
-        result = runner.invoke(main, [
-            "scan", SEMGREP_FIXTURE,
-            "--format", "summary",
-            "--samples", "20",
-            "--seed", "42",
-            "--skip-invalid",
-        ])
+        result = runner.invoke(
+            main,
+            [
+                "scan",
+                SEMGREP_FIXTURE,
+                "--format",
+                "summary",
+                "--samples",
+                "20",
+                "--seed",
+                "42",
+                "--skip-invalid",
+            ],
+        )
         assert result.exit_code == 0
         assert "Analyzed" in result.output
 
@@ -317,16 +340,24 @@ class TestYaraAdapter:
 
     def test_scan_yara(self):
         from click.testing import CliRunner
+
         from crossfire.cli import main
 
         runner = CliRunner()
-        result = runner.invoke(main, [
-            "scan", YARA_FIXTURE,
-            "--format", "summary",
-            "--samples", "20",
-            "--seed", "42",
-            "--skip-invalid",
-        ])
+        result = runner.invoke(
+            main,
+            [
+                "scan",
+                YARA_FIXTURE,
+                "--format",
+                "summary",
+                "--samples",
+                "20",
+                "--seed",
+                "42",
+                "--skip-invalid",
+            ],
+        )
         assert result.exit_code == 0
 
 
@@ -437,9 +468,7 @@ class TestSnortAdapter:
 
     def test_no_pcre_rules_skipped(self, tmp_path: Path):
         path = tmp_path / "no_pcre.rules"
-        path.write_text(
-            'alert tcp any any -> any any (msg:"Test"; content:"hello"; sid:1;)\n'
-        )
+        path.write_text('alert tcp any any -> any any (msg:"Test"; content:"hello"; sid:1;)\n')
         adapter = SnortAdapter()
         # can_load checks for "pcre" in content
         assert not adapter.can_load(str(path))

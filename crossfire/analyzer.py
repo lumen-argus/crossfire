@@ -6,13 +6,12 @@ import logging
 import time
 from collections import Counter
 from datetime import datetime, timezone
-from typing import Optional
 
 import crossfire
 from crossfire.classifier import Classifier
 from crossfire.evaluator import Evaluator
 from crossfire.generator import CorpusGenerator
-from crossfire.loader import load_multiple, load_rules
+from crossfire.loader import load_multiple
 from crossfire.models import AnalysisReport, Recommendation, Relationship
 
 log = logging.getLogger("crossfire.analyzer")
@@ -27,12 +26,12 @@ def analyze(
     negative_samples: int = 10,
     max_string_length: int = 256,
     generation_timeout_s: float = 2.0,
-    seed: Optional[int] = None,
+    seed: int | None = None,
     workers: int = 0,
-    partition_by: Optional[str] = None,
+    partition_by: str | None = None,
     skip_invalid: bool = False,
-    priorities: Optional[dict[str, int]] = None,
-    field_mapping: Optional[dict[str, str]] = None,
+    priorities: dict[str, int] | None = None,
+    field_mapping: dict[str, str] | None = None,
 ) -> AnalysisReport:
     """Run the full analysis pipeline.
 
@@ -84,9 +83,7 @@ def analyze(
     corpus = generator.generate(rules, skip_invalid=skip_invalid)
 
     # Compute corpus sizes per rule (positive only)
-    corpus_sizes: dict[str, int] = Counter(
-        e.source_rule for e in corpus if not e.is_negative
-    )
+    corpus_sizes: dict[str, int] = Counter(e.source_rule for e in corpus if not e.is_negative)
 
     # Step 4: Cross-evaluate
     eval_t0 = time.monotonic()
@@ -103,8 +100,12 @@ def analyze(
 
     # Step 5b: Quality assessment
     from crossfire.quality import assess_quality
+
     quality_report = assess_quality(
-        rules, corpus, matrix, corpus_sizes,
+        rules,
+        corpus,
+        matrix,
+        corpus_sizes,
         seed=seed,
     )
 
@@ -116,13 +117,11 @@ def analyze(
     # Count recommendations
     all_non_disjoint = duplicates + subsets + overlaps
     drop_count = sum(
-        1 for r in all_non_disjoint
+        1
+        for r in all_non_disjoint
         if r.recommendation in (Recommendation.KEEP_A, Recommendation.KEEP_B)
     )
-    review_count = sum(
-        1 for r in all_non_disjoint
-        if r.recommendation == Recommendation.REVIEW
-    )
+    review_count = sum(1 for r in all_non_disjoint if r.recommendation == Recommendation.REVIEW)
 
     total_duration = time.monotonic() - t0
 
@@ -156,9 +155,7 @@ def analyze(
         evaluation_summary={
             "total_comparisons": len(rules) * sum(1 for e in corpus if not e.is_negative),
             "positive_matches": sum(
-                count
-                for rule_counts in matrix.values()
-                for count in rule_counts.values()
+                count for rule_counts in matrix.values() for count in rule_counts.values()
             ),
             "duration_s": round(eval_duration, 1),
             "workers": workers or "auto",
@@ -177,8 +174,7 @@ def analyze(
                 for r in quality_report.low_specificity
             ],
             "fully_redundant": [
-                {"name": r.name, "source": r.source}
-                for r in quality_report.fully_redundant
+                {"name": r.name, "source": r.source} for r in quality_report.fully_redundant
             ],
             "summary": quality_report.summary,
         },

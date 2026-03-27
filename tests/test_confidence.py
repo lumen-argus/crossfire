@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from crossfire.confidence import ci_width, is_confident, recommend_samples, wilson_interval
 
 

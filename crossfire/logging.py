@@ -6,7 +6,6 @@ import json
 import logging
 import sys
 from datetime import datetime, timezone
-from typing import Optional
 
 
 class TextFormatter(logging.Formatter):
@@ -21,9 +20,7 @@ class JsonFormatter(logging.Formatter):
     """Structured JSON log format."""
 
     def format(self, record: logging.LogRecord) -> str:
-        ts = datetime.fromtimestamp(record.created, tz=timezone.utc).strftime(
-            "%Y-%m-%dT%H:%M:%SZ"
-        )
+        ts = datetime.fromtimestamp(record.created, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         entry: dict[str, object] = {
             "ts": ts,
             "level": record.levelname,
@@ -37,7 +34,7 @@ class JsonFormatter(logging.Formatter):
 
 def setup_logging(
     level: str = "warning",
-    log_file: Optional[str] = None,
+    log_file: str | None = None,
     log_format: str = "text",
 ) -> None:
     """Configure logging for Crossfire.
@@ -53,11 +50,7 @@ def setup_logging(
     # Remove any existing handlers
     root.handlers.clear()
 
-    formatter: logging.Formatter
-    if log_format == "json":
-        formatter = JsonFormatter()
-    else:
-        formatter = TextFormatter()
+    formatter: logging.Formatter = JsonFormatter() if log_format == "json" else TextFormatter()
 
     stderr_handler = logging.StreamHandler(sys.stderr)
     stderr_handler.setFormatter(formatter)

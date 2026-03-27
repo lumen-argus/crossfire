@@ -62,11 +62,16 @@ class TestCorpusEntry:
 class TestOverlapResult:
     def test_create(self):
         r = OverlapResult(
-            rule_a="a", rule_b="b",
-            source_a="f1.json", source_b="f2.json",
-            a_matches_b_corpus=45, b_matches_a_corpus=48,
-            a_corpus_size=50, b_corpus_size=50,
-            overlap_a_to_b=0.9, overlap_b_to_a=0.96,
+            rule_a="a",
+            rule_b="b",
+            source_a="f1.json",
+            source_b="f2.json",
+            a_matches_b_corpus=45,
+            b_matches_a_corpus=48,
+            a_corpus_size=50,
+            b_corpus_size=50,
+            overlap_a_to_b=0.9,
+            overlap_b_to_a=0.96,
             jaccard=0.88,
             relationship=Relationship.DUPLICATE,
             recommendation=Recommendation.KEEP_A,

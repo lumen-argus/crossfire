@@ -18,14 +18,10 @@ from typing import Any
 log = logging.getLogger("crossfire.plugins.yara")
 
 # Match: $identifier = /pattern/modifiers
-_REGEX_STRING = re.compile(
-    r'^\s*(\$\w+)\s*=\s*/((?:[^/\\]|\\.)*)/(.*?)$'
-)
+_REGEX_STRING = re.compile(r"^\s*(\$\w+)\s*=\s*/((?:[^/\\]|\\.)*)/(.*?)$")
 
 # Match: rule name : tags {
-_RULE_START = re.compile(
-    r'^\s*rule\s+(\w+)(?:\s*:\s*([\w\s]+))?\s*\{?\s*$'
-)
+_RULE_START = re.compile(r"^\s*rule\s+(\w+)(?:\s*:\s*([\w\s]+))?\s*\{?\s*$")
 
 
 class YaraAdapter:
@@ -40,14 +36,14 @@ class YaraAdapter:
         if p.suffix.lower() not in (".yar", ".yara"):
             return False
         try:
-            with open(p, "r", errors="replace") as f:
+            with open(p, errors="replace") as f:
                 content = f.read(2048)
             return "rule " in content and "strings:" in content
         except OSError:
             return False
 
     def load(self, path: str) -> list[dict[str, object]]:
-        with open(path, "r", errors="replace") as f:
+        with open(path, errors="replace") as f:
             lines = f.readlines()
 
         results: list[dict[str, object]] = []
@@ -61,27 +57,30 @@ class YaraAdapter:
                 tags_raw = meta.get("tags", [])
                 tags = tags_raw if isinstance(tags_raw, list) else []
 
-                metadata: dict[str, object] = {}
+                metadata: dict[str, object] = {
+                    k: v for k, v in meta.items() if k not in ("severity", "tags")
+                }
                 if modifiers:
                     metadata["yara_modifiers"] = modifiers
-                for k, v in meta.items():
-                    if k not in ("severity", "tags"):
-                        metadata[k] = v
 
-                results.append({
-                    "name": name,
-                    "pattern": pattern,
-                    "detector": "secrets",
-                    "severity": severity,
-                    "tags": tags,
-                    "metadata": metadata,
-                })
+                results.append(
+                    {
+                        "name": name,
+                        "pattern": pattern,
+                        "detector": "secrets",
+                        "severity": severity,
+                        "tags": tags,
+                        "metadata": metadata,
+                    }
+                )
 
         log.info("YARA adapter: loaded %d regex patterns from %s", len(results), path)
         return results
 
     def _parse_rules(
-        self, lines: list[str], path: str,
+        self,
+        lines: list[str],
+        path: str,
     ) -> list[tuple[str, dict[str, Any], list[tuple[str, str, str]]]]:
         """Parse YARA rules from file lines.
 
@@ -103,7 +102,7 @@ class YaraAdapter:
             if in_block_comment:
                 if "*/" in stripped:
                     in_block_comment = False
-                    stripped = stripped[stripped.index("*/") + 2:].strip()
+                    stripped = stripped[stripped.index("*/") + 2 :].strip()
                     if not stripped:
                         continue
                 else:
@@ -112,7 +111,7 @@ class YaraAdapter:
             if "/*" in stripped:
                 idx = stripped.index("/*")
                 before = stripped[:idx].strip()
-                after = stripped[idx + 2:]
+                after = stripped[idx + 2 :]
                 if before:
                     # Content before comment — use it, check if comment closes
                     stripped = before
@@ -129,10 +128,10 @@ class YaraAdapter:
                 if stripped.startswith("//"):
                     continue
                 if "//" in stripped:
-                    stripped = stripped[:stripped.index("//")].strip()
+                    stripped = stripped[: stripped.index("//")].strip()
 
             # Skip empty lines, imports, includes
-            if not stripped or stripped.startswith("import ") or stripped.startswith("include "):
+            if not stripped or stripped.startswith(("import ", "include ")):
                 continue
 
             # Rule start

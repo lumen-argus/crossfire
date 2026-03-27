@@ -102,7 +102,7 @@ def recommend_samples(
         # All matches or no matches — minimal samples needed
         return max(10, total)
 
-    n = int(math.ceil(4 * (z / target_width) ** 2 * variance))
+    n = math.ceil(4 * (z / target_width) ** 2 * variance)
     return max(10, n)
 
 

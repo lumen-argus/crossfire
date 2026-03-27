@@ -78,6 +78,7 @@ def _discover_external_adapters() -> None:
     """Discover and register adapters from entry_points."""
     try:
         from importlib.metadata import entry_points
+
         eps = entry_points(group="crossfire.adapters")
         for ep in eps:
             try:

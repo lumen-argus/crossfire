@@ -6,12 +6,11 @@ import json
 import logging
 import subprocess
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, TextIO
 
 from crossfire.errors import CrossfireError, LoadError
-from crossfire.models import CorpusEntry, Rule
+from crossfire.models import Rule
 
 DRIFT_THRESHOLD = 0.05
 
@@ -128,14 +127,20 @@ def load_corpus_jsonl(
 
             text = obj.get(text_field)
             if not text:
-                log.debug("Corpus line %d: missing or empty '%s' field, skipping", line_num, text_field)
+                log.debug(
+                    "Corpus line %d: missing or empty '%s' field, skipping",
+                    line_num,
+                    text_field,
+                )
                 continue
 
-            entries.append(LabeledEntry(
-                text=str(text),
-                label=str(obj.get(label_field, "")),
-                source=str(obj.get(source_field, "")),
-            ))
+            entries.append(
+                LabeledEntry(
+                    text=str(text),
+                    label=str(obj.get(label_field, "")),
+                    source=str(obj.get(source_field, "")),
+                )
+            )
 
     log.info("Loaded %d corpus entries from %s (%d errors)", len(entries), path, errors)
     if not entries:
@@ -172,17 +177,24 @@ def load_corpus_git(
 
     try:
         result = subprocess.run(
-            ["git", "log", f"--max-count={max_commits}", "--diff-filter=AM",
-             "-p", "--no-color", "--unified=0"],
+            [
+                "git",
+                "log",
+                f"--max-count={max_commits}",
+                "--diff-filter=AM",
+                "-p",
+                "--no-color",
+                "--unified=0",
+            ],
             cwd=repo_path,
             capture_output=True,
             text=True,
             timeout=120,
         )
-    except subprocess.TimeoutExpired:
-        raise CrossfireError(f"Git log timed out after 120s for {repo_path}")
-    except FileNotFoundError:
-        raise CrossfireError("git command not found — is git installed?")
+    except subprocess.TimeoutExpired as err:
+        raise CrossfireError(f"Git log timed out after 120s for {repo_path}") from err
+    except FileNotFoundError as err:
+        raise CrossfireError("git command not found — is git installed?") from err
 
     if result.returncode != 0:
         raise CrossfireError(f"git log failed: {result.stderr[:200]}")
@@ -206,16 +218,20 @@ def load_corpus_git(
             if content in seen_lines:
                 continue
             seen_lines.add(content)
-            entries.append(LabeledEntry(
-                text=content,
-                label="",
-                source=f"{current_commit}:{current_file}",
-            ))
+            entries.append(
+                LabeledEntry(
+                    text=content,
+                    label="",
+                    source=f"{current_commit}:{current_file}",
+                )
+            )
 
     duration = time.monotonic() - t0
     log.info(
         "Extracted %d unique lines from %s in %.1fs",
-        len(entries), repo_path, duration,
+        len(entries),
+        repo_path,
+        duration,
     )
 
     if not entries:
@@ -273,12 +289,14 @@ def evaluate_corpus(
                 if not redact_samples:
                     log.debug(
                         "Rule '%s' matched entry %d (source: %s)",
-                        rule.name, entry_idx, entry.source,
+                        rule.name,
+                        entry_idx,
+                        entry.source,
                     )
 
         # Track co-firing pairs
         for i, name_a in enumerate(firing_rules):
-            for name_b in firing_rules[i + 1:]:
+            for name_b in firing_rules[i + 1 :]:
                 key = (min(name_a, name_b), max(name_a, name_b))
                 co_fire_counts[key] = co_fire_counts.get(key, 0) + 1
 
@@ -360,12 +378,15 @@ def evaluate_corpus(
 
     log.info(
         "Evaluation complete in %.1fs: %d rules fired, %d co-firing pairs",
-        duration, firing_rules_count, len(co_firing),
+        duration,
+        firing_rules_count,
+        len(co_firing),
     )
     if has_labels:
         log.info(
             "Labeled evaluation: avg precision=%.2f, avg recall=%.2f",
-            avg_precision, avg_recall,
+            avg_precision,
+            avg_recall,
         )
 
     return report
@@ -398,7 +419,11 @@ def diff_corpora(
     """
     log.info(
         "Differential analysis: %d rules against %s (%d entries) vs %s (%d entries)",
-        len(rules), name_a, len(corpus_a), name_b, len(corpus_b),
+        len(rules),
+        name_a,
+        len(corpus_a),
+        name_b,
+        len(corpus_b),
     )
 
     results: list[DiffRuleResult] = []
@@ -412,22 +437,25 @@ def diff_corpora(
         drift = abs(rate_a - rate_b)
 
         if matches_a > 0 or matches_b > 0:
-            results.append(DiffRuleResult(
-                rule=rule.name,
-                matches_a=matches_a,
-                matches_b=matches_b,
-                rate_a=round(rate_a, 4),
-                rate_b=round(rate_b, 4),
-                drift=round(drift, 4),
-                significant=drift > drift_threshold,
-            ))
+            results.append(
+                DiffRuleResult(
+                    rule=rule.name,
+                    matches_a=matches_a,
+                    matches_b=matches_b,
+                    rate_a=round(rate_a, 4),
+                    rate_b=round(rate_b, 4),
+                    drift=round(drift, 4),
+                    significant=drift > drift_threshold,
+                )
+            )
 
     results.sort(key=lambda r: r.drift, reverse=True)
 
     significant = [r for r in results if r.significant]
     log.info(
         "Differential analysis complete: %d rules with matches, %d with significant drift",
-        len(results), len(significant),
+        len(results),
+        len(significant),
     )
 
     return DiffReport(

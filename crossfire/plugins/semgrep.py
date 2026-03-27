@@ -38,7 +38,7 @@ class SemgrepAdapter:
         if p.suffix.lower() not in (".yaml", ".yml"):
             return False
         try:
-            with open(p, "r", errors="replace") as f:
+            with open(p, errors="replace") as f:
                 content = f.read(2048)
             return "rules:" in content and "pattern-regex" in content
         except OSError:
@@ -66,7 +66,10 @@ class SemgrepAdapter:
         return results
 
     def _convert_rule(
-        self, rule: dict[str, Any], idx: int, path: str,
+        self,
+        rule: dict[str, Any],
+        idx: int,
+        path: str,
     ) -> list[dict[str, object]]:
         """Extract regex patterns from a Semgrep rule.
 
@@ -96,25 +99,29 @@ class SemgrepAdapter:
 
         results: list[dict[str, object]] = []
         if len(regexes) == 1:
-            results.append({
-                "name": rule_id,
-                "pattern": regexes[0],
-                "detector": "secrets",
-                "severity": severity,
-                "tags": tags,
-                "metadata": metadata,
-            })
-        else:
-            # Multiple regexes in one rule — create sub-rules
-            for i, regex in enumerate(regexes):
-                results.append({
-                    "name": f"{rule_id}_{i+1}",
-                    "pattern": regex,
+            results.append(
+                {
+                    "name": rule_id,
+                    "pattern": regexes[0],
                     "detector": "secrets",
                     "severity": severity,
                     "tags": tags,
                     "metadata": metadata,
-                })
+                }
+            )
+        else:
+            # Multiple regexes in one rule — create sub-rules
+            for i, regex in enumerate(regexes):
+                results.append(
+                    {
+                        "name": f"{rule_id}_{i + 1}",
+                        "pattern": regex,
+                        "detector": "secrets",
+                        "severity": severity,
+                        "tags": tags,
+                        "metadata": metadata,
+                    }
+                )
 
         return results
 
@@ -127,13 +134,17 @@ class SemgrepAdapter:
             regexes.append(str(rule["pattern-regex"]))
 
         # patterns (AND combination)
-        for item in rule.get("patterns", []):
-            if isinstance(item, dict) and "pattern-regex" in item:
-                regexes.append(str(item["pattern-regex"]))
+        regexes.extend(
+            str(item["pattern-regex"])
+            for item in rule.get("patterns", [])
+            if isinstance(item, dict) and "pattern-regex" in item
+        )
 
         # pattern-either (OR combination)
-        for item in rule.get("pattern-either", []):
-            if isinstance(item, dict) and "pattern-regex" in item:
-                regexes.append(str(item["pattern-regex"]))
+        regexes.extend(
+            str(item["pattern-regex"])
+            for item in rule.get("pattern-either", [])
+            if isinstance(item, dict) and "pattern-regex" in item
+        )
 
         return regexes

@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from pathlib import Path
 
 import pytest
 
-from crossfire.models import CorpusEntry, Rule
+from crossfire.models import Rule
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -93,9 +92,11 @@ def duplicate_rules() -> list[Rule]:
 @pytest.fixture
 def tmp_rules_file(tmp_path: Path) -> callable:
     """Factory fixture for creating temporary rule files."""
+
     def _create(rules: list[dict], name: str = "rules.json") -> str:
         path = tmp_path / name
         with open(path, "w") as f:
             json.dump(rules, f)
         return str(path)
+
     return _create

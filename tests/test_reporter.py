@@ -6,7 +6,13 @@ import csv
 import io
 import json
 
-from crossfire.models import AnalysisReport, ClusterInfo, OverlapResult, Recommendation, Relationship
+from crossfire.models import (
+    AnalysisReport,
+    ClusterInfo,
+    OverlapResult,
+    Recommendation,
+    Relationship,
+)
 from crossfire.reporter import render_csv, render_json, render_summary, render_table
 
 
@@ -18,48 +24,71 @@ def _make_report(
     """Create a test report with the specified number of findings."""
     dup_results = [
         OverlapResult(
-            rule_a=f"dup_a_{i}", rule_b=f"dup_b_{i}",
-            source_a="a.json", source_b="b.json",
-            a_matches_b_corpus=45, b_matches_a_corpus=42,
-            a_corpus_size=50, b_corpus_size=50,
-            overlap_a_to_b=0.9, overlap_b_to_a=0.84,
-            jaccard=0.87, relationship=Relationship.DUPLICATE,
-            recommendation=Recommendation.KEEP_A, reason="Higher priority",
+            rule_a=f"dup_a_{i}",
+            rule_b=f"dup_b_{i}",
+            source_a="a.json",
+            source_b="b.json",
+            a_matches_b_corpus=45,
+            b_matches_a_corpus=42,
+            a_corpus_size=50,
+            b_corpus_size=50,
+            overlap_a_to_b=0.9,
+            overlap_b_to_a=0.84,
+            jaccard=0.87,
+            relationship=Relationship.DUPLICATE,
+            recommendation=Recommendation.KEEP_A,
+            reason="Higher priority",
         )
         for i in range(duplicates)
     ]
     sub_results = [
         OverlapResult(
-            rule_a=f"sub_a_{i}", rule_b=f"sub_b_{i}",
-            source_a="a.json", source_b="b.json",
-            a_matches_b_corpus=48, b_matches_a_corpus=10,
-            a_corpus_size=50, b_corpus_size=50,
-            overlap_a_to_b=0.96, overlap_b_to_a=0.2,
-            jaccard=0.55, relationship=Relationship.SUBSET,
-            recommendation=Recommendation.KEEP_A, reason="More comprehensive",
+            rule_a=f"sub_a_{i}",
+            rule_b=f"sub_b_{i}",
+            source_a="a.json",
+            source_b="b.json",
+            a_matches_b_corpus=48,
+            b_matches_a_corpus=10,
+            a_corpus_size=50,
+            b_corpus_size=50,
+            overlap_a_to_b=0.96,
+            overlap_b_to_a=0.2,
+            jaccard=0.55,
+            relationship=Relationship.SUBSET,
+            recommendation=Recommendation.KEEP_A,
+            reason="More comprehensive",
         )
         for i in range(subsets)
     ]
     ovr_results = [
         OverlapResult(
-            rule_a=f"ovr_a_{i}", rule_b=f"ovr_b_{i}",
-            source_a="a.json", source_b="b.json",
-            a_matches_b_corpus=20, b_matches_a_corpus=15,
-            a_corpus_size=50, b_corpus_size=50,
-            overlap_a_to_b=0.4, overlap_b_to_a=0.3,
-            jaccard=0.3, relationship=Relationship.OVERLAP,
-            recommendation=Recommendation.REVIEW, reason="Partial overlap",
+            rule_a=f"ovr_a_{i}",
+            rule_b=f"ovr_b_{i}",
+            source_a="a.json",
+            source_b="b.json",
+            a_matches_b_corpus=20,
+            b_matches_a_corpus=15,
+            a_corpus_size=50,
+            b_corpus_size=50,
+            overlap_a_to_b=0.4,
+            overlap_b_to_a=0.3,
+            jaccard=0.3,
+            relationship=Relationship.OVERLAP,
+            recommendation=Recommendation.REVIEW,
+            reason="Partial overlap",
         )
         for i in range(overlaps)
     ]
     clusters = []
     if duplicates > 0:
-        clusters.append(ClusterInfo(
-            id=1,
-            rules=[f"dup_a_0", f"dup_b_0"],
-            keep="dup_a_0",
-            reason="Highest priority",
-        ))
+        clusters.append(
+            ClusterInfo(
+                id=1,
+                rules=["dup_a_0", "dup_b_0"],
+                keep="dup_a_0",
+                reason="Highest priority",
+            )
+        )
 
     return AnalysisReport(
         crossfire_version="0.1.0",

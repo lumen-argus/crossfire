@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from typing import Optional
 
 from crossfire.confidence import wilson_interval
 from crossfire.evaluator import MatchMatrix
@@ -55,15 +54,13 @@ class Classifier:
 
         # Evaluate all unique pairs
         for i, name_a in enumerate(rule_names):
-            for name_b in rule_names[i + 1:]:
-                result = self._classify_pair(
-                    name_a, name_b, matrix, rule_map, corpus_sizes
-                )
+            for name_b in rule_names[i + 1 :]:
+                result = self._classify_pair(name_a, name_b, matrix, rule_map, corpus_sizes)
                 if result:
                     results.append(result)
 
         # Count by relationship type
-        counts = defaultdict(int)
+        counts: defaultdict[Relationship, int] = defaultdict(int)
         for r in results:
             counts[r.relationship] += 1
 
@@ -87,7 +84,7 @@ class Classifier:
         matrix: MatchMatrix,
         rule_map: dict[str, Rule],
         corpus_sizes: dict[str, int],
-    ) -> Optional[OverlapResult]:
+    ) -> OverlapResult | None:
         """Classify the relationship between two rules."""
         size_a = corpus_sizes.get(name_a, 0)
         size_b = corpus_sizes.get(name_b, 0)
@@ -111,8 +108,12 @@ class Classifier:
 
         # Classify relationship
         relationship, recommendation, reason = self._determine_relationship(
-            name_a, name_b, overlap_a_to_b, overlap_b_to_a,
-            rule_map.get(name_a), rule_map.get(name_b),
+            name_a,
+            name_b,
+            overlap_a_to_b,
+            overlap_b_to_a,
+            rule_map.get(name_a),
+            rule_map.get(name_b),
         )
 
         # Skip disjoint pairs (not worth reporting)
@@ -121,9 +122,12 @@ class Classifier:
 
         log.debug(
             "Pair (%s, %s): a->b=%.0f%%, b->a=%.0f%%, jaccard=%.2f, rel=%s",
-            name_a, name_b,
-            overlap_a_to_b * 100, overlap_b_to_a * 100,
-            jaccard, relationship,
+            name_a,
+            name_b,
+            overlap_a_to_b * 100,
+            overlap_b_to_a * 100,
+            jaccard,
+            relationship,
         )
 
         # Compute confidence intervals
@@ -137,7 +141,10 @@ class Classifier:
             log.warning(
                 "Pair (%s, %s): wide CI (a->b: %.2f, b->a: %.2f) — "
                 "increase --samples for more reliable results",
-                name_a, name_b, width_ab, width_ba,
+                name_a,
+                name_b,
+                width_ab,
+                width_ba,
             )
 
         return OverlapResult(
@@ -165,8 +172,8 @@ class Classifier:
         name_b: str,
         overlap_a_to_b: float,
         overlap_b_to_a: float,
-        rule_a: Optional[Rule],
-        rule_b: Optional[Rule],
+        rule_a: Rule | None,
+        rule_b: Rule | None,
     ) -> tuple[Relationship, Recommendation, str]:
         """Determine relationship type, recommendation, and reason."""
         T = self.threshold
@@ -179,15 +186,31 @@ class Classifier:
             priority_a = rule_a.priority if rule_a else 0
             priority_b = rule_b.priority if rule_b else 0
             if priority_b > priority_a:
-                return Relationship.SUBSET, Recommendation.KEEP_BOTH, f"'{name_b}' has higher priority but is a subset"
-            return Relationship.SUBSET, Recommendation.KEEP_A, f"'{name_a}' is more comprehensive (superset)"
+                return (
+                    Relationship.SUBSET,
+                    Recommendation.KEEP_BOTH,
+                    f"'{name_b}' has higher priority but is a subset",
+                )
+            return (
+                Relationship.SUBSET,
+                Recommendation.KEEP_A,
+                f"'{name_a}' is more comprehensive (superset)",
+            )
 
         if overlap_b_to_a >= T and overlap_a_to_b < T:
             priority_a = rule_a.priority if rule_a else 0
             priority_b = rule_b.priority if rule_b else 0
             if priority_a > priority_b:
-                return Relationship.SUPERSET, Recommendation.KEEP_BOTH, f"'{name_a}' has higher priority but is a subset"
-            return Relationship.SUPERSET, Recommendation.KEEP_B, f"'{name_b}' is more comprehensive (superset)"
+                return (
+                    Relationship.SUPERSET,
+                    Recommendation.KEEP_BOTH,
+                    f"'{name_a}' has higher priority but is a subset",
+                )
+            return (
+                Relationship.SUPERSET,
+                Recommendation.KEEP_B,
+                f"'{name_b}' is more comprehensive (superset)",
+            )
 
         if overlap_a_to_b >= self.overlap_min or overlap_b_to_a >= self.overlap_min:
             return Relationship.OVERLAP, Recommendation.REVIEW, "Partial overlap — review manually"
@@ -198,8 +221,8 @@ class Classifier:
         self,
         name_a: str,
         name_b: str,
-        rule_a: Optional[Rule],
-        rule_b: Optional[Rule],
+        rule_a: Rule | None,
+        rule_b: Rule | None,
     ) -> tuple[Recommendation, str]:
         """For duplicates, recommend which rule to keep based on priority."""
         priority_a = rule_a.priority if rule_a else 0
@@ -243,9 +266,7 @@ class Classifier:
                     continue
                 visited.add(current)
                 component.append(current)
-                for neighbor in adjacency[current]:
-                    if neighbor not in visited:
-                        queue.append(neighbor)
+                queue.extend(n for n in adjacency[current] if n not in visited)
 
             if len(component) < 2:
                 continue
@@ -257,24 +278,25 @@ class Classifier:
             )
             keep = component[0]
             keep_rule = rule_map.get(keep)
-            reason = f"Highest priority in cluster"
+            reason = "Highest priority in cluster"
             if keep_rule and keep_rule.source:
                 reason += f" (from {keep_rule.source})"
 
             if len(component) > 5:
                 log.warning(
-                    "Large cluster of %d rules detected — may indicate "
-                    "overly broad pattern: %s",
+                    "Large cluster of %d rules detected — may indicate overly broad pattern: %s",
                     len(component),
                     ", ".join(component[:5]) + "...",
                 )
 
-            clusters.append(ClusterInfo(
-                id=cluster_id,
-                rules=component,
-                keep=keep,
-                reason=reason,
-            ))
+            clusters.append(
+                ClusterInfo(
+                    id=cluster_id,
+                    rules=component,
+                    keep=keep,
+                    reason=reason,
+                )
+            )
 
         if clusters:
             log.info("Built %d clusters from overlapping rules", len(clusters))

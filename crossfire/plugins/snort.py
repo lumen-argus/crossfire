@@ -13,31 +13,26 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import Any
 
 log = logging.getLogger("crossfire.plugins.snort")
 
 # Match pcre:"/pattern/modifiers";
-_PCRE_PATTERN = re.compile(
-    r'pcre\s*:\s*"/((?:[^/\\]|\\.)*)/(.*?)"'
-)
+_PCRE_PATTERN = re.compile(r'pcre\s*:\s*"/((?:[^/\\]|\\.)*)/(.*?)"')
 
 # Match rule header for metadata
-_RULE_HEADER = re.compile(
-    r'^(alert|drop|reject|pass|log)\s+', re.MULTILINE
-)
+_RULE_HEADER = re.compile(r"^(alert|drop|reject|pass|log)\s+", re.MULTILINE)
 
 # Extract msg:"..." from options
 _MSG_PATTERN = re.compile(r'msg\s*:\s*"([^"]*)"')
 
 # Extract sid:N from options
-_SID_PATTERN = re.compile(r'sid\s*:\s*(\d+)')
+_SID_PATTERN = re.compile(r"sid\s*:\s*(\d+)")
 
 # Extract classtype:... from options
-_CLASSTYPE_PATTERN = re.compile(r'classtype\s*:\s*([^;]+)')
+_CLASSTYPE_PATTERN = re.compile(r"classtype\s*:\s*([^;]+)")
 
 # Extract priority:N from options
-_PRIORITY_PATTERN = re.compile(r'priority\s*:\s*(\d+)')
+_PRIORITY_PATTERN = re.compile(r"priority\s*:\s*(\d+)")
 
 
 class SnortAdapter:
@@ -52,7 +47,7 @@ class SnortAdapter:
         if p.suffix.lower() != ".rules":
             return False
         try:
-            with open(p, "r", errors="replace") as f:
+            with open(p, errors="replace") as f:
                 content = f.read(4096)
             return bool(_RULE_HEADER.search(content)) and "pcre" in content
         except OSError:
@@ -61,7 +56,7 @@ class SnortAdapter:
     def load(self, path: str) -> list[dict[str, object]]:
         results: list[dict[str, object]] = []
 
-        with open(path, "r", errors="replace") as f:
+        with open(path, errors="replace") as f:
             for line_num, line in enumerate(f, start=1):
                 line = line.strip()
                 if not line or line.startswith("#"):
@@ -76,7 +71,10 @@ class SnortAdapter:
         return results
 
     def _convert_rule(
-        self, line: str, line_num: int, path: str,
+        self,
+        line: str,
+        line_num: int,
+        path: str,
     ) -> list[dict[str, object]]:
         """Extract PCRE patterns from a Snort rule line."""
         pcre_matches = _PCRE_PATTERN.findall(line)
@@ -111,20 +109,22 @@ class SnortAdapter:
             # Unescape forward slashes
             pattern = pattern.replace("\\/", "/")
 
-            name = f"sid:{sid}" if len(pcre_matches) == 1 else f"sid:{sid}_pcre{i+1}"
+            name = f"sid:{sid}" if len(pcre_matches) == 1 else f"sid:{sid}_pcre{i + 1}"
 
             pcre_meta = dict(metadata)
             if modifiers:
                 pcre_meta["pcre_modifiers"] = modifiers
 
-            results.append({
-                "name": name,
-                "pattern": pattern,
-                "detector": "ids",
-                "severity": severity,
-                "tags": list(tags),
-                "metadata": pcre_meta,
-            })
+            results.append(
+                {
+                    "name": name,
+                    "pattern": pattern,
+                    "detector": "ids",
+                    "severity": severity,
+                    "tags": list(tags),
+                    "metadata": pcre_meta,
+                }
+            )
 
         return results
 

@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import csv
-import io
 import json
 import logging
 import re
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, cast
 
 import yaml
 
@@ -24,7 +24,7 @@ DEFAULT_DETECTOR_FIELDS = ("detector", "type", "category")
 DEFAULT_SEVERITY_FIELDS = ("severity", "level")
 
 
-def _find_field(entry: dict[str, Any], candidates: tuple[str, ...]) -> Optional[str]:
+def _find_field(entry: dict[str, Any], candidates: tuple[str, ...]) -> str | None:
     """Find the first matching field name in an entry."""
     for field_name in candidates:
         if field_name in entry:
@@ -49,22 +49,22 @@ def _detect_format(path: Path) -> str:
 def _load_json(path: Path) -> list[dict[str, Any]]:
     """Load rules from JSON file."""
     with open(path) as f:
-        data = json.load(f)
+        data: Any = json.load(f)
     if isinstance(data, list):
-        return data  # type: ignore[return-value]
+        return cast(list[dict[str, Any]], data)
     if isinstance(data, dict) and "rules" in data:
-        return data["rules"]  # type: ignore[return-value]
+        return cast(list[dict[str, Any]], data["rules"])
     raise LoadError(f"JSON must be an array or object with 'rules' key: {path}")
 
 
 def _load_yaml(path: Path) -> list[dict[str, Any]]:
     """Load rules from YAML file."""
     with open(path) as f:
-        data = yaml.safe_load(f)
+        data: Any = yaml.safe_load(f)
     if isinstance(data, list):
-        return data
+        return cast(list[dict[str, Any]], data)
     if isinstance(data, dict) and "rules" in data:
-        return data["rules"]
+        return cast(list[dict[str, Any]], data["rules"])
     raise LoadError(f"YAML must be a list or mapping with 'rules' key: {path}")
 
 
@@ -81,15 +81,15 @@ def _load_toml(path: Path) -> list[dict[str, Any]]:
         import tomllib
     except ImportError:
         try:
-            import tomli as tomllib  # type: ignore[no-redef]
-        except ImportError:
+            import tomli as tomllib
+        except ImportError as err:
             raise LoadError(
                 f"TOML support requires Python 3.11+ or 'tomli' package: {path}"
-            )
+            ) from err
     with open(path, "rb") as f:
         data = tomllib.load(f)
     if "rules" in data:
-        return data["rules"]  # type: ignore[return-value]
+        return cast(list[dict[str, Any]], data["rules"])
     raise LoadError(f"TOML must have a [[rules]] section: {path}")
 
 
@@ -106,7 +106,7 @@ def load_rules(
     *,
     skip_invalid: bool = False,
     priority: int = 0,
-    field_mapping: Optional[dict[str, str]] = None,
+    field_mapping: dict[str, str] | None = None,
 ) -> list[Rule]:
     """Load and validate rules from a file.
 
@@ -131,6 +131,7 @@ def load_rules(
 
     # Try plugin adapters first (e.g., GitLeaks TOML)
     from crossfire.plugins import find_adapter
+
     adapter = find_adapter(str(path))
     if adapter:
         log.info("Loading rules from %s (adapter: %s)", path, adapter.name)
@@ -144,13 +145,13 @@ def load_rules(
         raise LoadError(f"No rules found in {path}")
 
     # Build field lookup with custom mapping overrides
-    name_fields = DEFAULT_NAME_FIELDS
-    pattern_fields = DEFAULT_PATTERN_FIELDS
+    name_fields: tuple[str, ...] = DEFAULT_NAME_FIELDS
+    pattern_fields: tuple[str, ...] = DEFAULT_PATTERN_FIELDS
     if field_mapping:
         if "name" in field_mapping:
-            name_fields = (field_mapping["name"],) + DEFAULT_NAME_FIELDS
+            name_fields = (field_mapping["name"], *DEFAULT_NAME_FIELDS)
         if "pattern" in field_mapping:
-            pattern_fields = (field_mapping["pattern"],) + DEFAULT_PATTERN_FIELDS
+            pattern_fields = (field_mapping["pattern"], *DEFAULT_PATTERN_FIELDS)
 
     rules: list[Rule] = []
     seen_names: set[str] = set()
@@ -261,21 +262,28 @@ def load_rules(
         if "metadata" in entry and isinstance(entry["metadata"], dict):
             metadata = entry["metadata"]
         else:
-            known_keys = set(name_fields + pattern_fields + DEFAULT_DETECTOR_FIELDS
-                             + DEFAULT_SEVERITY_FIELDS + ("tags",))
+            known_keys = set(
+                name_fields
+                + pattern_fields
+                + DEFAULT_DETECTOR_FIELDS
+                + DEFAULT_SEVERITY_FIELDS
+                + ("tags",)
+            )
             metadata = {k: v for k, v in entry.items() if k not in known_keys}
 
-        rules.append(Rule(
-            name=name,
-            pattern=pattern,
-            compiled=compiled,
-            source=source,
-            detector=detector,
-            severity=severity,
-            tags=[str(t) for t in tags],
-            priority=priority,
-            metadata=metadata,
-        ))
+        rules.append(
+            Rule(
+                name=name,
+                pattern=pattern,
+                compiled=compiled,
+                source=source,
+                detector=detector,
+                severity=severity,
+                tags=[str(t) for t in tags],
+                priority=priority,
+                metadata=metadata,
+            )
+        )
 
     if skipped and skip_invalid:
         log.warning("Loaded %d rules from %s (%d skipped)", len(rules), path, skipped)
@@ -297,11 +305,11 @@ def _handle_invalid(error: ValidationError, skip_invalid: bool) -> None:
 
 
 def load_multiple(
-    paths: list[str | Path],
+    paths: Sequence[str | Path],
     *,
     skip_invalid: bool = False,
-    priorities: Optional[dict[str, int]] = None,
-    field_mapping: Optional[dict[str, str]] = None,
+    priorities: dict[str, int] | None = None,
+    field_mapping: dict[str, str] | None = None,
 ) -> list[Rule]:
     """Load rules from multiple files.
 
