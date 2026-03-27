@@ -33,6 +33,10 @@ dependencies = [
 
 [project.optional-dependencies]
 rich = ["rich>=13.0"]
+docs = [
+    "mkdocs-material>=9.0",
+    "pymdown-extensions>=10.0",
+]
 dev = [
     "pytest>=7.0",
     "pytest-cov",

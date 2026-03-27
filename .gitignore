@@ -11,3 +11,4 @@ build/
 .eggs/
 htmlcov/
 .coverage
+site/
