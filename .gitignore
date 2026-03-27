@@ -12,3 +12,4 @@ build/
 htmlcov/
 .coverage
 site/
+overlap-report.json

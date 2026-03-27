@@ -5,7 +5,7 @@ Crossfire can be added to any CI pipeline.
 ## Installation
 
 ```bash
-pip install git+https://github.com/lumen-argus/crossfire.git
+pip install crossfire-rules
 ```
 
 ## Usage
@@ -31,7 +31,7 @@ crossfire compare rules/*.json --fail-on-duplicate --format summary
 rule-check:
   image: python:3.12
   script:
-    - pip install git+https://github.com/lumen-argus/crossfire.git
+    - pip install crossfire-rules
     - crossfire compare rules/*.json --fail-on-duplicate --format summary
 ```
 
@@ -40,7 +40,7 @@ rule-check:
 ```groovy
 stage('Rule Overlap Check') {
     sh '''
-        pip install git+https://github.com/lumen-argus/crossfire.git
+        pip install crossfire-rules
         crossfire compare rules/*.json --fail-on-duplicate --format summary
     '''
 }
@@ -58,6 +58,6 @@ jobs:
       - run:
           name: Check rule overlaps
           command: |
-            pip install git+https://github.com/lumen-argus/crossfire.git
+            pip install crossfire-rules
             crossfire compare rules/*.json --fail-on-duplicate --format summary
 ```

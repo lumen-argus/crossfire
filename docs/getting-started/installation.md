@@ -5,13 +5,17 @@
 - Python 3.10 or higher
 - No heavy dependencies
 
+## Install from PyPI
+
+```bash
+pip install crossfire-rules
+```
+
 ## Install from source
 
 ```bash
 git clone https://github.com/lumen-argus/crossfire.git
 cd crossfire
-python3 -m venv .venv
-source .venv/bin/activate
 pip install -e .
 ```
 
