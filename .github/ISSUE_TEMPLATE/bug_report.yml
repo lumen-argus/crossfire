@@ -1,0 +1,56 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened? What did you expect?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Minimal command or code to reproduce the issue.
+      placeholder: |
+        crossfire scan rules.json --format json
+    validations:
+      required: true
+
+  - type: textarea
+    id: rules
+    attributes:
+      label: Rule file (if applicable)
+      description: Paste a minimal rule file that triggers the bug.
+      render: json
+
+  - type: input
+    id: version
+    attributes:
+      label: Crossfire version
+      placeholder: "0.2.0"
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "3.12"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Docker
+    validations:
+      required: true

@@ -1,18 +1,25 @@
 ## Summary
 
-<!-- Brief description of what this PR does -->
+<!-- What does this PR do? Why? -->
 
 ## Changes
 
 -
 
-## Testing
+## Test plan
 
-- [ ] Tests added/updated
-- [ ] All tests pass (`pytest`)
-- [ ] Linter clean (`ruff check crossfire/ tests/`)
+- [ ] Tests pass (`pytest`)
+- [ ] Lint passes (`ruff check crossfire/ tests/`)
+- [ ] Type check passes (`mypy --strict crossfire/`)
+- [ ] No performance regression on large rule sets
 
 ## Checklist
 
 - [ ] Updated CHANGELOG.md (for user-visible changes)
 - [ ] Updated README.md (if new commands or options)
+
+## Breaking changes
+
+<!-- Does this change any public API, CLI flags, or output format? -->
+
+None
