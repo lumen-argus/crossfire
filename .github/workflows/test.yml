@@ -20,6 +20,8 @@ jobs:
         run: pip install -e ".[dev]"
       - name: Lint
         run: ruff check crossfire/ tests/
+      - name: Type check
+        run: mypy --strict crossfire/
 
   test:
     runs-on: ubuntu-latest

@@ -12,6 +12,8 @@ from __future__ import annotations
 import logging
 import re
 
+from crossfire.models import CompiledPattern
+
 log = logging.getLogger("crossfire.regex")
 
 try:
@@ -27,7 +29,7 @@ def is_re2_available() -> bool:
     return _RE2_AVAILABLE
 
 
-def compile(pattern: str) -> re.Pattern[str]:
+def compile(pattern: str) -> CompiledPattern:
     """Compile a regex pattern, using RE2 when available and compatible.
 
     Args:

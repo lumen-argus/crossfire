@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import Protocol
+
+
+class CompiledPattern(Protocol):
+    """Protocol for compiled regex — matches both re.Pattern and re2.Pattern."""
+
+    def search(self, string: str, pos: int = ..., endpos: int = ...) -> object: ...
+    def match(self, string: str, pos: int = ..., endpos: int = ...) -> object: ...
 
 
 class Relationship(StrEnum):
@@ -32,7 +39,7 @@ class Rule:
 
     name: str
     pattern: str
-    compiled: re.Pattern[str]
+    compiled: CompiledPattern
     source: str = ""
     detector: str = ""
     severity: str = ""

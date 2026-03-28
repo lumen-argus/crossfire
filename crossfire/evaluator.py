@@ -5,13 +5,12 @@ from __future__ import annotations
 import logging
 import multiprocessing
 import os
-import re
 import sys
 import time
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-from crossfire.models import CorpusEntry, Rule
+from crossfire.models import CompiledPattern, CorpusEntry, Rule
 
 log = logging.getLogger("crossfire.evaluator")
 
@@ -22,7 +21,7 @@ MatchMatrix = dict[str, dict[str, int]]
 _USE_FORK = sys.platform == "linux"
 
 # ---- Fork-mode shared data (set before pool creation, inherited via COW) ----
-_fork_compiled: list[tuple[str, re.Pattern[str]]] = []
+_fork_compiled: list[tuple[str, CompiledPattern]] = []
 _fork_corpus: list[tuple[str, str]] = []
 
 
@@ -233,7 +232,7 @@ class Evaluator:
         _fork_compiled = [(r.name, r.compiled) for r in rules]
         _fork_corpus = corpus_texts
 
-        chunk_size = max(1, len(corpus_texts) // n_workers)
+        chunk_size = max(1, -(-len(corpus_texts) // n_workers))  # ceil division
         chunk_ranges = [
             (i, min(i + chunk_size, len(corpus_texts)))
             for i in range(0, len(corpus_texts), chunk_size)
@@ -290,7 +289,7 @@ class Evaluator:
         """
         rule_patterns = [(r.name, r.pattern) for r in rules]
 
-        chunk_size = max(1, len(corpus_texts) // n_workers)
+        chunk_size = max(1, -(-len(corpus_texts) // n_workers))  # ceil division
         chunks = [corpus_texts[i : i + chunk_size] for i in range(0, len(corpus_texts), chunk_size)]
 
         matrix: MatchMatrix = defaultdict(lambda: defaultdict(int))
