@@ -53,19 +53,19 @@ This handles any regex feature Python supports — anchors, lookahead, backrefer
 
 ## Performance
 
-Tested on 1,722 real detection rules (54 community + 1,668 commercial):
+Tested on 1,537 rules (50 samples/rule, Docker):
 
 | Step | Time |
 |------|------|
 | Load + validate | <1s |
-| Generate corpus (30 samples/rule) | ~26s |
-| Cross-evaluate (72M regex matches) | ~3s |
+| Generate corpus (parallel) | ~5s |
+| Cross-evaluate (83M regex matches) | ~2s |
 | Classify + quality assessment | <1s |
-| **Total** | **~30s** |
+| **Total** | **~8s** |
 
-Results: 22 duplicates, 249 subsets, 82 overlaps, 18 clusters, 31 broad patterns, 240 fully redundant rules.
+On Linux, Crossfire uses `fork`-based workers that inherit pre-compiled patterns via copy-on-write — zero serialization and recompilation overhead.
 
-**Want it faster?** Install with RE2 support for 10-100x faster regex matching:
+**Want it faster?** Install with RE2 support for accelerated regex compilation:
 
 ```bash
 pip install crossfire-rules[re2]

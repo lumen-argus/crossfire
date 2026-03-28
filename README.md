@@ -363,7 +363,7 @@ Exit codes: `0` = clean, `1` = duplicates found (`--fail-on-duplicate`), `2` = i
 | `--threshold` | `0.8` | Overlap % to classify as duplicate (0.0-1.0) |
 | `--samples` | `50` | Test strings generated per rule |
 | `--seed` | None | Random seed for reproducible results |
-| `--workers` | auto | Parallel evaluation workers |
+| `--workers` | auto | Parallel evaluation workers (or `CROSSFIRE_WORKERS` env) |
 | `--format` | `table` | Output: `table`, `json`, `csv`, `summary` |
 | `--output` | stdout | Write report to file |
 | `--skip-invalid` | off | Skip broken regexes instead of failing |
@@ -390,17 +390,17 @@ log_level: warning
 
 ## Performance
 
-Tested on 1,722 real detection rules (54 community + 1,668 commercial):
+Tested on 1,537 rules (50 samples/rule, Docker):
 
 | Step | Time |
 |------|------|
 | Load + validate | <1s |
-| Generate corpus (30 samples/rule) | ~26s |
-| Cross-evaluate (72M regex matches) | ~3s |
+| Generate corpus (parallel) | ~5s |
+| Cross-evaluate (83M regex matches) | ~2s |
 | Classify + quality assessment | <1s |
-| **Total** | **~30s** |
+| **Total** | **~8s** |
 
-Results: 22 duplicates, 249 subsets, 82 overlaps, 18 clusters, 31 broad patterns, 240 fully redundant rules.
+On Linux, Crossfire uses `fork`-based workers that inherit pre-compiled patterns via copy-on-write — zero serialization and recompilation overhead. On macOS/Windows, spawn-based workers recompile patterns from strings.
 
 ## Contributing
 
