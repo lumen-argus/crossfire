@@ -64,3 +64,11 @@ Tested on 1,722 real detection rules (54 community + 1,668 commercial):
 | **Total** | **~30s** |
 
 Results: 22 duplicates, 249 subsets, 82 overlaps, 18 clusters, 31 broad patterns, 240 fully redundant rules.
+
+**Want it faster?** Install with RE2 support for 10-100x faster regex matching:
+
+```bash
+pip install crossfire-rules[re2]
+```
+
+See [Installation](getting-started/installation.md) for details.

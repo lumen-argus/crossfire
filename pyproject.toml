@@ -33,6 +33,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+re2 = ["google-re2>=1.1"]
 rich = ["rich>=13.0"]
 docs = [
     "mkdocs-material>=9.0",
@@ -95,7 +96,7 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
-module = ["sre_parse", "re._parser", "rstr", "yaml"]
+module = ["sre_parse", "re._parser", "rstr", "yaml", "re2"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

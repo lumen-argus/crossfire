@@ -12,6 +12,7 @@ from typing import Any, cast
 
 import yaml
 
+from crossfire import regex as cre
 from crossfire.errors import LoadError, ValidationError
 from crossfire.models import Rule
 
@@ -225,9 +226,9 @@ def load_rules(
             skipped += 1
             continue
 
-        # Compile regex
+        # Compile regex (uses RE2 when available for faster matching)
         try:
-            compiled = re.compile(pattern)
+            compiled = cre.compile(pattern)
         except re.error as e:
             _handle_invalid(
                 ValidationError(

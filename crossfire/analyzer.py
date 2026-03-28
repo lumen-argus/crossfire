@@ -61,8 +61,14 @@ def analyze(
     Returns:
         AnalysisReport with full results.
     """
+    from crossfire.regex import is_re2_available
+
     t0 = time.monotonic()
-    log.info("Analysis started: %d file(s)", len(paths))
+    log.info(
+        "Analysis started: %d file(s), regex engine: %s",
+        len(paths),
+        "RE2 + re fallback" if is_re2_available() else "re (stdlib)",
+    )
 
     # Step 1-2: Load and validate
     rules = load_multiple(

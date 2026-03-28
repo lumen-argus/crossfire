@@ -57,7 +57,21 @@ This handles any regex feature Python supports — anchors, lookahead, backrefer
 pip install crossfire-rules
 ```
 
-Or from source:
+For **10-100x faster regex matching** on large rule sets, install with RE2 support:
+
+```bash
+# macOS
+brew install re2
+pip install crossfire-rules[re2]
+
+# Ubuntu/Debian
+sudo apt-get install -y libre2-dev
+pip install crossfire-rules[re2]
+```
+
+RE2 is optional — Crossfire works fine without it using Python's stdlib `re`. RE2 accelerates patterns that don't use backreferences or lookahead (most DLP/secret-scanning rules). Incompatible patterns automatically fall back to `re` per-pattern.
+
+Or install from source:
 
 ```bash
 git clone https://github.com/lumen-argus/crossfire.git
@@ -65,7 +79,7 @@ cd crossfire
 pip install -e .
 ```
 
-Requires Python 3.10+.
+Requires Python 3.11+.
 
 ## Commands
 

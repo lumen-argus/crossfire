@@ -34,6 +34,7 @@ Pipeline: Load → Validate (fail-fast) → Generate corpus → Cross-evaluate �
 - `models.py` — Rule, CorpusEntry, OverlapResult, AnalysisReport dataclasses
 - `loader.py` — Format-agnostic rule loading (JSON/YAML/CSV/TOML) with fail-fast validation
 - `generator.py` — Corpus generation via rstr + fallback, per-rule timeout, negative samples
+- `regex.py` — Regex compilation with optional RE2 acceleration (tries google-re2, falls back to re)
 - `evaluator.py` — Parallel cross-rule regex evaluation, NxN match matrix
 - `classifier.py` — Relationship classification (duplicate/subset/superset/overlap/disjoint), clustering, Wilson score CIs
 - `confidence.py` — Wilson score confidence intervals for overlap proportions
@@ -81,5 +82,5 @@ crossfire diff rules.json --corpus-a a.jsonl --corpus-b b.jsonl  # Coverage drif
 ## Dependencies
 
 Runtime: `rstr>=3.2`, `click>=8.0`, `pyyaml>=6.0`
-Optional: `rich>=13.0` (terminal tables)
+Optional: `rich>=13.0` (terminal tables), `google-re2>=1.1` (10-100x faster regex via `pip install crossfire-rules[re2]`)
 Dev: `pytest`, `pytest-cov`, `ruff`, `mypy`
