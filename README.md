@@ -3,6 +3,7 @@
 [![CI](https://github.com/lumen-argus/crossfire/actions/workflows/test.yml/badge.svg)](https://github.com/lumen-argus/crossfire/actions/workflows/test.yml)
 [![PyPI](https://img.shields.io/pypi/v/crossfire-rules)](https://pypi.org/project/crossfire-rules/)
 [![Python](https://img.shields.io/pypi/pyversions/crossfire-rules)](https://pypi.org/project/crossfire-rules/)
+[![Coverage](https://codecov.io/gh/lumen-argus/crossfire/graph/badge.svg)](https://codecov.io/gh/lumen-argus/crossfire)
 [![License](https://img.shields.io/github/license/lumen-argus/crossfire)](https://github.com/lumen-argus/crossfire/blob/main/LICENSE)
 
 **Find duplicate and overlapping regex rules before they create duplicate alerts.**
