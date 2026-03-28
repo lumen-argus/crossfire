@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 import random
 import string
@@ -243,7 +244,7 @@ def _compute_overlap_counts(
             continue
         for other_name, count in matches.items():
             if other_name != rule_name and count > 0 and other_name in rule_names:
-                counts[rule_name] = counts.get(rule_name, 0) + 1
+                counts[rule_name] += 1
 
     return counts
 
@@ -290,6 +291,7 @@ def _generate_random_strings(count: int, rng: random.Random) -> list[str]:
     return strings
 
 
+@functools.lru_cache(maxsize=256)
 def _pattern_complexity(pattern: str) -> int:
     """Estimate regex complexity by counting AST nodes."""
     try:

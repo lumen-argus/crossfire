@@ -77,15 +77,8 @@ def _load_csv(path: Path) -> list[dict[str, Any]]:
 
 def _load_toml(path: Path) -> list[dict[str, Any]]:
     """Load rules from TOML file (GitLeaks format)."""
-    try:
-        import tomllib
-    except ImportError:
-        try:
-            import tomli as tomllib
-        except ImportError as err:
-            raise LoadError(
-                f"TOML support requires Python 3.11+ or 'tomli' package: {path}"
-            ) from err
+    import tomllib
+
     with open(path, "rb") as f:
         data = tomllib.load(f)
     if "rules" in data:

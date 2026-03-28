@@ -24,8 +24,8 @@ repos:
     hooks:
       - id: mypy
         name: mypy
-        entry: mypy --strict
+        entry: mypy --strict crossfire/
         language: system
         types: [python]
         exclude: ^tests/
-        pass_filenames: true
+        pass_filenames: false

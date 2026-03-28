@@ -64,7 +64,9 @@ def main(log_level: str, log_file: str | None, log_format: str) -> None:
     help="Output format.",
 )
 @click.option("--output", "-o", default=None, type=click.Path(), help="Output file path.")
-@click.option("--workers", default=0, type=int, help="Parallel workers (0=auto).")
+@click.option(
+    "--workers", default=0, type=int, envvar="CROSSFIRE_WORKERS", help="Parallel workers (0=auto)."
+)
 @click.option("--seed", default=None, type=int, help="Random seed for reproducibility.")
 @click.option("--skip-invalid", is_flag=True, help="Skip invalid rules instead of failing.")
 @click.option("--fail-on-duplicate", is_flag=True, help="Exit code 1 if duplicates found.")
@@ -122,7 +124,9 @@ def scan(
     help="Output format.",
 )
 @click.option("--output", "-o", default=None, type=click.Path(), help="Output file path.")
-@click.option("--workers", default=0, type=int, help="Parallel workers (0=auto).")
+@click.option(
+    "--workers", default=0, type=int, envvar="CROSSFIRE_WORKERS", help="Parallel workers (0=auto)."
+)
 @click.option("--seed", default=None, type=int, help="Random seed for reproducibility.")
 @click.option("--skip-invalid", is_flag=True, help="Skip invalid rules instead of failing.")
 @click.option("--fail-on-duplicate", is_flag=True, help="Exit code 1 if duplicates found.")

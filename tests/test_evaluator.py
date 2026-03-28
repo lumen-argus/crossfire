@@ -86,32 +86,48 @@ class TestSingleThread:
 
 class TestParallel:
     def test_parallel_matches_single_thread(self):
-        """Parallel evaluation should produce the same results as single-threaded."""
+        """Parallel evaluation should produce identical results to single-threaded."""
         rules = [
             _make_rule("a", r"[a-z]{5}"),
             _make_rule("b", r"[a-z]{4,6}"),
             _make_rule("c", r"\d{5}"),
         ]
+        # Need >= 50 corpus entries to trigger parallel path
         corpus = [
             _make_entry("abcde", "a"),
             _make_entry("fghij", "a"),
             _make_entry("abcd", "b"),
             _make_entry("abcdef", "b"),
             _make_entry("12345", "c"),
-        ]
+        ] * 12  # 60 entries
 
         single = Evaluator(workers=1)
-        single.evaluate(rules, corpus)
+        matrix_single = single.evaluate(rules, corpus)
 
-        # Force parallel by using more workers than rules
         parallel = Evaluator(workers=2)
-        # Need enough rules to trigger parallel path
-        many_rules = rules * 5  # 15 rules
-        many_corpus = corpus * 3
-        matrix_parallel = parallel.evaluate(many_rules, many_corpus)
+        matrix_parallel = parallel.evaluate(rules, corpus)
 
-        # Just verify it doesn't crash and produces a matrix
-        assert isinstance(matrix_parallel, dict)
+        # Matrices must be identical
+        assert set(matrix_single.keys()) == set(matrix_parallel.keys())
+        for rule_name in matrix_single:
+            assert matrix_single[rule_name] == matrix_parallel[rule_name], (
+                f"Mismatch for rule '{rule_name}'"
+            )
+
+    def test_corpus_chunk_merging(self):
+        """Counts from different corpus chunks must be summed correctly."""
+        rules = [
+            _make_rule("broad", r"\d+"),
+            _make_rule("narrow", r"\d{4}"),
+        ]
+        # Many entries from same source — will be split across workers
+        corpus = [_make_entry("1234", "narrow")] * 100
+
+        parallel = Evaluator(workers=4)
+        matrix = parallel.evaluate(rules, corpus)
+
+        assert matrix["broad"]["narrow"] == 100
+        assert matrix["narrow"]["narrow"] == 100
 
 
 class TestPartitioning:

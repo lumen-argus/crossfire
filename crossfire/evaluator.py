@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -15,44 +16,40 @@ log = logging.getLogger("crossfire.evaluator")
 MatchMatrix = dict[str, dict[str, int]]
 
 
-def _evaluate_chunk(
+def _evaluate_corpus_chunk(
     rule_patterns: list[tuple[str, str]],
-    corpus_texts: list[tuple[str, str]],
+    corpus_chunk: list[tuple[str, str]],
 ) -> list[tuple[str, str, int]]:
-    """Evaluate a chunk of rules against the full corpus.
+    """Evaluate all rules against a chunk of corpus strings.
 
-    This runs in a worker process. We pass pattern strings (not compiled
-    objects) and re-compile here because regex Pattern objects are not
-    transferable across process boundaries via the standard multiprocessing
-    serialization. No pickle of untrusted data is involved — we only
-    serialize plain strings and integers.
+    This runs in a worker process. Each worker receives the full (small)
+    rule list and a slice of the (large) corpus. Rules are compiled once
+    per worker. We pass pattern strings (not compiled objects) because
+    regex Pattern objects are not picklable.
 
     Args:
-        rule_patterns: List of (rule_name, pattern_string) tuples.
-        corpus_texts: List of (text, source_rule) tuples.
+        rule_patterns: List of (rule_name, pattern_string) tuples — all rules.
+        corpus_chunk: List of (text, source_rule) tuples — a slice of corpus.
 
     Returns:
         List of (rule_name, source_rule, match_count) tuples.
     """
     import re
 
-    results: list[tuple[str, str, int]] = []
-
+    compiled_rules: list[tuple[str, re.Pattern[str]]] = []
     for rule_name, pattern in rule_patterns:
         try:
-            compiled = re.compile(pattern)
+            compiled_rules.append((rule_name, re.compile(pattern)))
         except re.error:
             continue
 
-        counts: dict[str, int] = defaultdict(int)
-        for text, source_rule in corpus_texts:
+    counts: dict[tuple[str, str], int] = defaultdict(int)
+    for text, source_rule in corpus_chunk:
+        for rule_name, compiled in compiled_rules:
             if compiled.search(text):
-                counts[source_rule] += 1
+                counts[(rule_name, source_rule)] += 1
 
-        for source_rule, count in counts.items():
-            results.append((rule_name, source_rule, count))
-
-    return results
+    return [(rn, sr, c) for (rn, sr), c in counts.items()]
 
 
 class Evaluator:
@@ -166,26 +163,31 @@ class Evaluator:
         rules: list[Rule],
         corpus: list[CorpusEntry],
     ) -> MatchMatrix:
-        """Evaluate all rules against all corpus entries using parallel workers."""
+        """Evaluate all rules against all corpus entries using parallel workers.
+
+        Parallelism is corpus-chunked: each worker gets all rule patterns
+        (small) plus a slice of the corpus (large). This minimises
+        serialisation overhead compared to sending the full corpus to every
+        worker.
+        """
         corpus_texts = [(e.text, e.source_rule) for e in corpus]
         rule_patterns = [(r.name, r.pattern) for r in rules]
 
-        # Decide chunk size
-        n_workers = self.workers or 4
-        if len(rules) <= n_workers or len(rules) < 10:
+        n_workers = self.workers or os.cpu_count() or 4
+        # Fall back to single-thread for small workloads or explicit workers=1
+        if n_workers == 1 or len(corpus_texts) < 50 or len(rules) < 2:
             return self._evaluate_single_thread(rules, corpus)
 
-        chunk_size = max(1, len(rule_patterns) // n_workers)
-        chunks = [
-            rule_patterns[i : i + chunk_size] for i in range(0, len(rule_patterns), chunk_size)
-        ]
+        chunk_size = max(1, len(corpus_texts) // n_workers)
+        chunks = [corpus_texts[i : i + chunk_size] for i in range(0, len(corpus_texts), chunk_size)]
 
         matrix: MatchMatrix = defaultdict(lambda: defaultdict(int))
         completed = 0
+        failed: list[tuple[int, Exception]] = []
 
         with ProcessPoolExecutor(max_workers=n_workers) as executor:
             futures = {
-                executor.submit(_evaluate_chunk, chunk, corpus_texts): i
+                executor.submit(_evaluate_corpus_chunk, rule_patterns, chunk): i
                 for i, chunk in enumerate(chunks)
             }
 
@@ -194,14 +196,20 @@ class Evaluator:
                 try:
                     results = future.result()
                     for rule_name, source_rule, count in results:
-                        matrix[rule_name][source_rule] = count
-                except Exception:
+                        matrix[rule_name][source_rule] += count
+                except Exception as exc:
                     log.error("Worker chunk %d failed", chunk_idx, exc_info=True)
+                    failed.append((chunk_idx, exc))
 
                 completed += 1
-                pct = int(completed / len(chunks) * 100)
-                if pct % 25 == 0 or completed == len(chunks):
+                if completed == len(chunks) or completed % max(1, len(chunks) // 4) == 0:
+                    pct = int(completed / len(chunks) * 100)
                     log.info("Progress: %d%% (%d/%d chunks)", pct, completed, len(chunks))
+
+        if failed:
+            raise RuntimeError(
+                f"{len(failed)} evaluation worker(s) failed — results would be incomplete"
+            )
 
         return dict(matrix)
 

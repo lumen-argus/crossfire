@@ -81,15 +81,10 @@ class GitleaksAdapter:
 
     def _parse_toml(self, path: str) -> dict[str, Any]:
         """Parse TOML file."""
-        try:
-            import tomllib
-        except ImportError:
-            try:
-                import tomli as tomllib
-            except ImportError as err:
-                raise ImportError("TOML support requires Python 3.11+ or 'tomli' package") from err
+        import tomllib
+
         with open(path, "rb") as f:
-            return tomllib.load(f)  # type: ignore[no-any-return]
+            return tomllib.load(f)
 
     def _convert_rule(
         self,

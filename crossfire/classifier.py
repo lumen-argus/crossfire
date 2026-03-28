@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections import defaultdict
+from collections import defaultdict, deque
 
 from crossfire.confidence import wilson_interval
 from crossfire.evaluator import MatchMatrix
@@ -54,7 +54,11 @@ class Classifier:
 
         # Evaluate all unique pairs
         for i, name_a in enumerate(rule_names):
+            matches_a = matrix.get(name_a, {})
             for name_b in rule_names[i + 1 :]:
+                # Skip pairs with zero overlap in both directions
+                if matches_a.get(name_b, 0) == 0 and matrix.get(name_b, {}).get(name_a, 0) == 0:
+                    continue
                 result = self._classify_pair(name_a, name_b, matrix, rule_map, corpus_sizes)
                 if result:
                     results.append(result)
@@ -259,9 +263,9 @@ class Classifier:
                 continue
             cluster_id += 1
             component: list[str] = []
-            queue = [node]
+            queue: deque[str] = deque([node])
             while queue:
-                current = queue.pop(0)
+                current = queue.popleft()
                 if current in visited:
                     continue
                 visited.add(current)

@@ -5,14 +5,14 @@ from __future__ import annotations
 import json
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 class TextFormatter(logging.Formatter):
     """Human-readable log format."""
 
     def format(self, record: logging.LogRecord) -> str:
-        ts = datetime.fromtimestamp(record.created, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        ts = datetime.fromtimestamp(record.created, tz=UTC).strftime("%Y-%m-%d %H:%M:%S")
         return f"{ts} [{record.levelname}] {record.name}: {record.getMessage()}"
 
 
@@ -20,7 +20,7 @@ class JsonFormatter(logging.Formatter):
     """Structured JSON log format."""
 
     def format(self, record: logging.LogRecord) -> str:
-        ts = datetime.fromtimestamp(record.created, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        ts = datetime.fromtimestamp(record.created, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         entry: dict[str, object] = {
             "ts": ts,
             "level": record.levelname,

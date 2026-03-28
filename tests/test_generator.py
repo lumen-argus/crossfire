@@ -146,6 +146,62 @@ class TestReproducibility:
         assert texts1 == texts2
 
 
+class TestParallelGeneration:
+    def test_parallel_generates_for_all_rules(self):
+        """Parallel path (>= 8 rules) should produce entries for every rule."""
+        gen = CorpusGenerator(samples_per_rule=10, negative_samples=0, seed=42)
+        rules = [_make_rule(f"rule_{i}", rf"[a-z]{{{i + 3}}}") for i in range(10)]
+        entries = gen.generate(rules)
+        sources = {e.source_rule for e in entries}
+        assert sources == {f"rule_{i}" for i in range(10)}
+
+    def test_parallel_all_entries_valid(self):
+        """Every entry from parallel generation must match its source rule."""
+        gen = CorpusGenerator(samples_per_rule=15, negative_samples=0, seed=42)
+        rules = [_make_rule(f"r{i}", rf"[a-z]{{{i + 3}}}") for i in range(10)]
+        entries = gen.generate(rules)
+        for entry in entries:
+            rule = next(r for r in rules if r.name == entry.source_rule)
+            assert rule.compiled.search(entry.text), f"'{entry.text}' should match {rule.pattern}"
+
+    def test_parallel_reproducibility(self):
+        """Same seed should produce identical output across runs."""
+        rules = [_make_rule(f"r{i}", rf"[a-z]{{{i + 3}}}") for i in range(10)]
+
+        gen1 = CorpusGenerator(samples_per_rule=10, negative_samples=0, seed=99)
+        entries1 = gen1.generate(rules)
+
+        gen2 = CorpusGenerator(samples_per_rule=10, negative_samples=0, seed=99)
+        entries2 = gen2.generate(rules)
+
+        # Group by rule and compare (order across rules may vary with as_completed)
+        def _texts_by_rule(entries: list) -> dict:
+            return {
+                r.name: sorted(e.text for e in entries if e.source_rule == r.name) for r in rules
+            }
+
+        by_rule1 = _texts_by_rule(entries1)
+        by_rule2 = _texts_by_rule(entries2)
+        assert by_rule1 == by_rule2
+
+    def test_parallel_skip_invalid(self):
+        """Parallel path should respect skip_invalid."""
+        gen = CorpusGenerator(
+            samples_per_rule=50,
+            min_valid_samples=50,
+            negative_samples=0,
+            generation_timeout_s=0.5,
+            seed=42,
+        )
+        # Mix valid and impossible rules to exceed threshold of 8
+        rules = [_make_rule(f"ok_{i}", rf"[a-z]{{{i + 3}}}") for i in range(8)]
+        rules.append(_make_rule("impossible", r"^exact_single_match$"))
+        entries = gen.generate(rules, skip_invalid=True)
+        sources = {e.source_rule for e in entries}
+        assert "impossible" not in sources
+        assert len(sources) == 8
+
+
 class TestEdgeCases:
     def test_anchored_pattern(self):
         gen = CorpusGenerator(samples_per_rule=20, negative_samples=0, seed=42)

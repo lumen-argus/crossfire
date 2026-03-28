@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import logging
+import os
 import random
 import string
 import time
+import zlib
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import rstr
 
@@ -13,6 +16,53 @@ from crossfire.errors import GenerationError
 from crossfire.models import CorpusEntry, Rule
 
 log = logging.getLogger("crossfire.generator")
+
+
+def _generate_for_rule_worker(
+    rule_name: str,
+    rule_pattern: str,
+    samples_per_rule: int,
+    negative_samples: int,
+    max_string_length: int,
+    generation_timeout_s: float,
+    min_valid_samples: int,
+    rule_seed: int | None,
+) -> list[tuple[str, str, bool]]:
+    """Generate corpus entries for a single rule in a worker process.
+
+    Args:
+        rule_name: Name of the rule.
+        rule_pattern: Regex pattern string (compiled in-worker).
+        samples_per_rule: Target positive samples.
+        negative_samples: Target negative samples.
+        max_string_length: Maximum generated string length.
+        generation_timeout_s: Timeout per rule.
+        min_valid_samples: Minimum valid samples before raising.
+        rule_seed: Deterministic per-rule seed, or None.
+
+    Returns:
+        List of (text, source_rule, is_negative) tuples.
+
+    Raises:
+        GenerationError: If generation fails to produce enough samples.
+    """
+    import re
+
+    if rule_seed is not None:
+        random.seed(rule_seed)
+
+    compiled = re.compile(rule_pattern)
+
+    gen = CorpusGenerator(
+        samples_per_rule=samples_per_rule,
+        negative_samples=negative_samples,
+        max_string_length=max_string_length,
+        generation_timeout_s=generation_timeout_s,
+        min_valid_samples=min_valid_samples,
+    )
+    rule = Rule(name=rule_name, pattern=rule_pattern, compiled=compiled)
+    entries = gen._generate_for_rule(rule)
+    return [(e.text, e.source_rule, e.is_negative) for e in entries]
 
 
 class CorpusGenerator:
@@ -37,6 +87,7 @@ class CorpusGenerator:
         self.max_string_length = max_string_length
         self.generation_timeout_s = generation_timeout_s
         self.min_valid_samples = min_valid_samples
+        self._seed = seed
 
         if seed is not None:
             random.seed(seed)
@@ -50,6 +101,10 @@ class CorpusGenerator:
     ) -> list[CorpusEntry]:
         """Generate corpus entries for all rules.
 
+        Uses parallel workers for large rule sets (>= 8 rules) to speed up
+        generation. Each worker gets a deterministic per-rule seed derived
+        from the master seed.
+
         Args:
             rules: List of rules to generate strings for.
             skip_invalid: If True, skip rules that fail generation instead of raising.
@@ -61,6 +116,29 @@ class CorpusGenerator:
             GenerationError: If a rule fails generation and skip_invalid is False.
         """
         t0 = time.monotonic()
+
+        if len(rules) >= 8:
+            all_entries, skipped = self._generate_parallel(rules, skip_invalid=skip_invalid)
+        else:
+            all_entries, skipped = self._generate_sequential(rules, skip_invalid=skip_invalid)
+
+        duration = time.monotonic() - t0
+        log.info(
+            "Corpus generation complete: %d strings for %d rules in %.1fs%s",
+            len(all_entries),
+            len(rules),
+            duration,
+            f" ({skipped} skipped)" if skipped else "",
+        )
+        return all_entries
+
+    def _generate_sequential(
+        self,
+        rules: list[Rule],
+        *,
+        skip_invalid: bool = False,
+    ) -> tuple[list[CorpusEntry], int]:
+        """Sequential generation for small rule sets."""
         all_entries: list[CorpusEntry] = []
         skipped = 0
 
@@ -75,15 +153,54 @@ class CorpusGenerator:
                 else:
                     raise
 
-        duration = time.monotonic() - t0
-        log.info(
-            "Corpus generation complete: %d strings for %d rules in %.1fs%s",
-            len(all_entries),
-            len(rules),
-            duration,
-            f" ({skipped} skipped)" if skipped else "",
-        )
-        return all_entries
+        return all_entries, skipped
+
+    def _generate_parallel(
+        self,
+        rules: list[Rule],
+        *,
+        skip_invalid: bool = False,
+    ) -> tuple[list[CorpusEntry], int]:
+        """Parallel generation using ProcessPoolExecutor."""
+        all_entries: list[CorpusEntry] = []
+        skipped = 0
+        n_workers = min(len(rules), os.cpu_count() or 4)
+
+        with ProcessPoolExecutor(max_workers=n_workers) as executor:
+            futures = {}
+            for rule in rules:
+                rule_seed = None
+                if self._seed is not None:
+                    rule_seed = (self._seed + zlib.crc32(rule.name.encode())) & 0x7FFFFFFF
+                future = executor.submit(
+                    _generate_for_rule_worker,
+                    rule.name,
+                    rule.pattern,
+                    self.samples_per_rule,
+                    self.negative_samples,
+                    self.max_string_length,
+                    self.generation_timeout_s,
+                    self.min_valid_samples,
+                    rule_seed,
+                )
+                futures[future] = rule.name
+
+            for future in as_completed(futures):
+                rule_name = futures[future]
+                try:
+                    results = future.result()
+                    all_entries.extend(
+                        CorpusEntry(text=text, source_rule=sr, is_negative=neg)
+                        for text, sr, neg in results
+                    )
+                except GenerationError:
+                    if skip_invalid:
+                        log.warning("Rule '%s': generation failed, skipping", rule_name)
+                        skipped += 1
+                    else:
+                        raise
+
+        return all_entries, skipped
 
     def _generate_for_rule(self, rule: Rule) -> list[CorpusEntry]:
         """Generate corpus entries for a single rule."""

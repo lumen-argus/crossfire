@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 
 
-class Relationship(str, Enum):
+class Relationship(StrEnum):
     """Classification of how two rules relate."""
 
     DUPLICATE = "duplicate"
@@ -17,7 +17,7 @@ class Relationship(str, Enum):
     DISJOINT = "disjoint"
 
 
-class Recommendation(str, Enum):
+class Recommendation(StrEnum):
     """Recommended action for an overlapping pair."""
 
     KEEP_A = "keep_a"

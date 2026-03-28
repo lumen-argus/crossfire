@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import crossfire
 from crossfire.classifier import Classifier
@@ -73,6 +73,7 @@ def analyze(
     )
 
     # Step 3: Generate corpus
+    gen_t0 = time.monotonic()
     generator = CorpusGenerator(
         samples_per_rule=samples_per_rule,
         negative_samples=negative_samples,
@@ -81,6 +82,7 @@ def analyze(
         seed=seed,
     )
     corpus = generator.generate(rules, skip_invalid=skip_invalid)
+    gen_duration = time.monotonic() - gen_t0
 
     # Compute corpus sizes per rule (positive only)
     corpus_sizes: dict[str, int] = Counter(e.source_rule for e in corpus if not e.is_negative)
@@ -129,7 +131,7 @@ def analyze(
 
     report = AnalysisReport(
         crossfire_version=crossfire.__version__,
-        timestamp=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        timestamp=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         config={
             "threshold": threshold,
             "cluster_threshold": cluster_threshold,
@@ -150,7 +152,7 @@ def analyze(
             "total_strings": len(corpus),
             "positive_strings": sum(1 for e in corpus if not e.is_negative),
             "negative_strings": sum(1 for e in corpus if e.is_negative),
-            "generation_duration_s": round(total_duration - eval_duration, 1),
+            "generation_duration_s": round(gen_duration, 1),
         },
         evaluation_summary={
             "total_comparisons": len(rules) * sum(1 for e in corpus if not e.is_negative),

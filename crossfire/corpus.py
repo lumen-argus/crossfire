@@ -406,6 +406,8 @@ def diff_corpora(
     For each rule, compute match rate in each corpus and flag rules with
     significant divergence (coverage drift).
 
+    Reuses evaluate_corpus() internally to avoid redundant O(R*C) scans.
+
     Args:
         rules: List of rules to evaluate.
         corpus_a: First corpus.
@@ -426,11 +428,14 @@ def diff_corpora(
         len(corpus_b),
     )
 
+    report_a = evaluate_corpus(rules, corpus_a)
+    report_b = evaluate_corpus(rules, corpus_b)
+
     results: list[DiffRuleResult] = []
 
     for rule in rules:
-        matches_a = sum(1 for e in corpus_a if rule.compiled.search(e.text))
-        matches_b = sum(1 for e in corpus_b if rule.compiled.search(e.text))
+        matches_a = report_a.match_matrix.get(rule.name, 0)
+        matches_b = report_b.match_matrix.get(rule.name, 0)
 
         rate_a = matches_a / len(corpus_a) if corpus_a else 0.0
         rate_b = matches_b / len(corpus_b) if corpus_b else 0.0
