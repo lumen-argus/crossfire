@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 
+import pytest
+
 from crossfire.evaluator import Evaluator
 from crossfire.models import CorpusEntry, Rule
 
@@ -128,6 +130,22 @@ class TestParallel:
 
         assert matrix["broad"]["narrow"] == 100
         assert matrix["narrow"]["narrow"] == 100
+
+    def test_worker_failure_raises(self, monkeypatch):
+        """Worker failure should raise RuntimeError, not silently drop results."""
+        import crossfire.evaluator as ev
+
+        def boom(*_args):
+            raise ValueError("injected failure")
+
+        monkeypatch.setattr(ev, "_evaluate_spawn_chunk", boom)
+        monkeypatch.setattr(ev, "_USE_FORK", False)
+
+        rules = [_make_rule("a", r"\d+"), _make_rule("b", r"[a-z]+")]
+        corpus = [_make_entry(str(i), "a") for i in range(100)]
+
+        with pytest.raises(RuntimeError, match="worker"):
+            Evaluator(workers=2).evaluate(rules, corpus)
 
 
 class TestPartitioning:

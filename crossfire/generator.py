@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+import multiprocessing
 import os
 import random
 import string
+import sys
 import time
 import zlib
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -14,6 +16,8 @@ import rstr
 
 from crossfire.errors import GenerationError
 from crossfire.models import CorpusEntry, Rule
+
+_USE_FORK = sys.platform == "linux"
 
 log = logging.getLogger("crossfire.generator")
 
@@ -165,8 +169,9 @@ class CorpusGenerator:
         all_entries: list[CorpusEntry] = []
         skipped = 0
         n_workers = min(len(rules), os.cpu_count() or 4)
+        ctx = multiprocessing.get_context("fork") if _USE_FORK else None
 
-        with ProcessPoolExecutor(max_workers=n_workers) as executor:
+        with ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx) as executor:
             futures = {}
             for rule in rules:
                 rule_seed = None

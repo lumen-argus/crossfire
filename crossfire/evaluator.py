@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import logging
+import multiprocessing
 import os
+import re
+import sys
 import time
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -15,17 +18,52 @@ log = logging.getLogger("crossfire.evaluator")
 # Type alias for the match matrix: matrix[rule_name][corpus_source_rule] = match_count
 MatchMatrix = dict[str, dict[str, int]]
 
+# Fork is safe on Linux; macOS/Windows use spawn (fork unsafe with Obj-C runtime / not supported)
+_USE_FORK = sys.platform == "linux"
 
-def _evaluate_corpus_chunk(
+# ---- Fork-mode shared data (set before pool creation, inherited via COW) ----
+_fork_compiled: list[tuple[str, re.Pattern[str]]] = []
+_fork_corpus: list[tuple[str, str]] = []
+
+
+def _evaluate_fork_chunk(
+    chunk_range: tuple[int, int],
+) -> list[tuple[str, str, int]]:
+    """Evaluate pre-compiled rules against a corpus slice (fork mode).
+
+    Workers inherit compiled patterns and corpus from the parent process
+    via copy-on-write. No serialization, no recompilation, and RE2-compiled
+    patterns work transparently.
+
+    Args:
+        chunk_range: (start, end) indices into the shared corpus.
+
+    Returns:
+        List of (rule_name, source_rule, match_count) tuples.
+    """
+    start, end = chunk_range
+    results: list[tuple[str, str, int]] = []
+
+    for rule_name, compiled in _fork_compiled:
+        counts: dict[str, int] = defaultdict(int)
+        for i in range(start, end):
+            text, source_rule = _fork_corpus[i]
+            if compiled.search(text):
+                counts[source_rule] += 1
+        for source_rule, count in counts.items():
+            results.append((rule_name, source_rule, count))
+
+    return results
+
+
+def _evaluate_spawn_chunk(
     rule_patterns: list[tuple[str, str]],
     corpus_chunk: list[tuple[str, str]],
 ) -> list[tuple[str, str, int]]:
-    """Evaluate all rules against a chunk of corpus strings.
+    """Evaluate rules against a corpus chunk (spawn mode).
 
-    This runs in a worker process. Each worker receives the full (small)
-    rule list and a slice of the (large) corpus. Rules are compiled once
-    per worker. We pass pattern strings (not compiled objects) because
-    regex Pattern objects are not picklable.
+    Workers recompile patterns from strings since Pattern objects are not
+    picklable. Used on macOS/Windows where fork is unavailable.
 
     Args:
         rule_patterns: List of (rule_name, pattern_string) tuples — all rules.
@@ -57,6 +95,11 @@ class Evaluator:
 
     Builds an NxN match matrix showing how many of each rule's corpus
     strings are matched by every other rule.
+
+    On Linux, uses fork-based workers that inherit pre-compiled patterns
+    (including RE2) via copy-on-write — zero serialization and recompilation.
+    On macOS/Windows, falls back to spawn-based workers that recompile from
+    pattern strings.
     """
 
     def __init__(
@@ -163,20 +206,89 @@ class Evaluator:
         rules: list[Rule],
         corpus: list[CorpusEntry],
     ) -> MatchMatrix:
-        """Evaluate all rules against all corpus entries using parallel workers.
-
-        Parallelism is corpus-chunked: each worker gets all rule patterns
-        (small) plus a slice of the corpus (large). This minimises
-        serialisation overhead compared to sending the full corpus to every
-        worker.
-        """
+        """Evaluate all rules against all corpus entries using parallel workers."""
         corpus_texts = [(e.text, e.source_rule) for e in corpus]
-        rule_patterns = [(r.name, r.pattern) for r in rules]
 
         n_workers = self.workers or os.cpu_count() or 4
-        # Fall back to single-thread for small workloads or explicit workers=1
         if n_workers == 1 or len(corpus_texts) < 50 or len(rules) < 2:
             return self._evaluate_single_thread(rules, corpus)
+
+        if _USE_FORK:
+            return self._evaluate_fork(rules, corpus_texts, n_workers)
+        return self._evaluate_spawn(rules, corpus_texts, n_workers)
+
+    def _evaluate_fork(
+        self,
+        rules: list[Rule],
+        corpus_texts: list[tuple[str, str]],
+        n_workers: int,
+    ) -> MatchMatrix:
+        """Fork mode: workers inherit pre-compiled patterns via COW.
+
+        Zero serialization for patterns/corpus. RE2-compiled patterns
+        (from loader) are used directly. Only (start, end) integers are
+        sent to workers.
+        """
+        global _fork_compiled, _fork_corpus
+        _fork_compiled = [(r.name, r.compiled) for r in rules]
+        _fork_corpus = corpus_texts
+
+        chunk_size = max(1, len(corpus_texts) // n_workers)
+        chunk_ranges = [
+            (i, min(i + chunk_size, len(corpus_texts)))
+            for i in range(0, len(corpus_texts), chunk_size)
+        ]
+
+        ctx = multiprocessing.get_context("fork")
+        matrix: MatchMatrix = defaultdict(lambda: defaultdict(int))
+        completed = 0
+        failed: list[tuple[int, Exception]] = []
+
+        try:
+            with ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx) as executor:
+                futures = {
+                    executor.submit(_evaluate_fork_chunk, cr): i
+                    for i, cr in enumerate(chunk_ranges)
+                }
+
+                for future in as_completed(futures):
+                    chunk_idx = futures[future]
+                    try:
+                        results = future.result()
+                        for rule_name, source_rule, count in results:
+                            matrix[rule_name][source_rule] += count
+                    except Exception as exc:
+                        log.error("Worker chunk %d failed", chunk_idx, exc_info=True)
+                        failed.append((chunk_idx, exc))
+
+                    completed += 1
+                    n_chunks = len(chunk_ranges)
+                    if completed == n_chunks or completed % max(1, n_chunks // 4) == 0:
+                        pct = int(completed / n_chunks * 100)
+                        log.info("Progress: %d%% (%d/%d chunks)", pct, completed, n_chunks)
+        finally:
+            _fork_compiled = []
+            _fork_corpus = []
+
+        if failed:
+            raise RuntimeError(
+                f"{len(failed)} evaluation worker(s) failed — results would be incomplete"
+            )
+
+        return dict(matrix)
+
+    def _evaluate_spawn(
+        self,
+        rules: list[Rule],
+        corpus_texts: list[tuple[str, str]],
+        n_workers: int,
+    ) -> MatchMatrix:
+        """Spawn mode: workers recompile patterns from strings.
+
+        Used on macOS/Windows where fork is unavailable. Each worker
+        receives pattern strings and a corpus slice.
+        """
+        rule_patterns = [(r.name, r.pattern) for r in rules]
 
         chunk_size = max(1, len(corpus_texts) // n_workers)
         chunks = [corpus_texts[i : i + chunk_size] for i in range(0, len(corpus_texts), chunk_size)]
@@ -187,7 +299,7 @@ class Evaluator:
 
         with ProcessPoolExecutor(max_workers=n_workers) as executor:
             futures = {
-                executor.submit(_evaluate_corpus_chunk, rule_patterns, chunk): i
+                executor.submit(_evaluate_spawn_chunk, rule_patterns, chunk): i
                 for i, chunk in enumerate(chunks)
             }
 

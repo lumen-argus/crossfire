@@ -1,5 +1,10 @@
 # Crossfire
 
+[![CI](https://github.com/lumen-argus/crossfire/actions/workflows/test.yml/badge.svg)](https://github.com/lumen-argus/crossfire/actions/workflows/test.yml)
+[![PyPI](https://img.shields.io/pypi/v/crossfire-rules)](https://pypi.org/project/crossfire-rules/)
+[![Python](https://img.shields.io/pypi/pyversions/crossfire-rules)](https://pypi.org/project/crossfire-rules/)
+[![License](https://img.shields.io/github/license/lumen-argus/crossfire)](https://github.com/lumen-argus/crossfire/blob/main/LICENSE)
+
 **Find duplicate and overlapping regex rules before they create duplicate alerts.**
 
 If you maintain detection rules for secret scanning, DLP, SAST, YARA, or IDS — you probably have rules that fire on the same input. Crossfire finds them.
