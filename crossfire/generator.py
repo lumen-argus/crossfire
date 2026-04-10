@@ -7,17 +7,33 @@ import multiprocessing
 import os
 import random
 import string
-import sys
 import time
 import zlib
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import Future, ProcessPoolExecutor, as_completed
+from typing import Any
 
 import rstr
 
 from crossfire.errors import GenerationError
 from crossfire.models import CorpusEntry, Rule
 
-_USE_FORK = sys.platform == "linux"
+# We default to "spawn" rather than "fork" because forking from a multi-threaded
+# parent process is unsafe: child processes inherit memory but only the calling
+# thread, leaving any locks held by other parent threads permanently locked in
+# the child. Embedders that call CorpusGenerator from inside a thread (e.g.
+# background workers, web servers) hit this as silent ProcessPoolExecutor
+# shutdown deadlocks. Spawn is slightly slower at startup (each worker re-imports
+# the module) but is safe in every host configuration. CPython 3.14 deprecates
+# fork as the default for the same reason.
+_DEFAULT_MP_CONTEXT = "spawn"
+
+# A worker that does not return a result within this many seconds is considered
+# hung; we cancel it and surface a GenerationError so the parallel coordinator
+# never blocks the host process forever.
+_PER_WORKER_TIMEOUT_S = 60.0
+
+# Auto-parallel kicks in at this rule count when `parallel` is left unset.
+_AUTO_PARALLEL_THRESHOLD = 8
 
 log = logging.getLogger("crossfire.generator")
 
@@ -85,13 +101,41 @@ class CorpusGenerator:
         generation_timeout_s: float = 2.0,
         seed: int | None = None,
         min_valid_samples: int = 10,
+        parallel: bool | None = None,
+        mp_context: str = _DEFAULT_MP_CONTEXT,
+        per_worker_timeout_s: float = _PER_WORKER_TIMEOUT_S,
     ) -> None:
+        """Configure a corpus generator.
+
+        Args:
+            samples_per_rule: Target positive samples per rule.
+            negative_samples: Target near-miss negative samples per rule.
+            max_string_length: Hard cap on generated string length.
+            generation_timeout_s: Per-rule wall clock budget for sampling.
+            seed: Master seed for reproducible runs (None = nondeterministic).
+            min_valid_samples: Minimum positive samples required per rule.
+            parallel: True = always use process pool. False = always sequential.
+                None (default) = auto: parallel iff `len(rules) >= 8`.
+                Pass False when calling from a multi-threaded host process to
+                avoid the cost of worker startup; sequential is plenty fast for
+                small/medium rule sets.
+            mp_context: multiprocessing start method for the parallel pool.
+                Defaults to "spawn", which is safe in every host configuration.
+                Use "fork" only for single-threaded CLI invocations where you
+                want to skip the per-worker re-import cost.
+            per_worker_timeout_s: How long to wait for any single worker future
+                to return before treating it as hung. Caps the worst-case
+                shutdown wait if a worker deadlocks.
+        """
         self.samples_per_rule = samples_per_rule
         self.negative_samples = negative_samples
         self.max_string_length = max_string_length
         self.generation_timeout_s = generation_timeout_s
         self.min_valid_samples = min_valid_samples
         self._seed = seed
+        self._parallel = parallel
+        self._mp_context = mp_context
+        self._per_worker_timeout_s = per_worker_timeout_s
 
         if seed is not None:
             random.seed(seed)
@@ -102,16 +146,16 @@ class CorpusGenerator:
         rules: list[Rule],
         *,
         skip_invalid: bool = False,
+        parallel: bool | None = None,
     ) -> list[CorpusEntry]:
         """Generate corpus entries for all rules.
-
-        Uses parallel workers for large rule sets (>= 8 rules) to speed up
-        generation. Each worker gets a deterministic per-rule seed derived
-        from the master seed.
 
         Args:
             rules: List of rules to generate strings for.
             skip_invalid: If True, skip rules that fail generation instead of raising.
+            parallel: Per-call override of the constructor `parallel` setting.
+                None (default) defers to the constructor; True/False force the
+                given mode for this call only.
 
         Returns:
             List of CorpusEntry objects.
@@ -121,9 +165,20 @@ class CorpusGenerator:
         """
         t0 = time.monotonic()
 
-        if len(rules) >= 8:
+        # Resolution order: explicit call argument > constructor setting > auto.
+        effective_parallel = parallel if parallel is not None else self._parallel
+        if effective_parallel is None:
+            effective_parallel = len(rules) >= _AUTO_PARALLEL_THRESHOLD
+
+        if effective_parallel:
+            log.info(
+                "Corpus generation: parallel mode (%d rules, mp_context=%s)",
+                len(rules),
+                self._mp_context,
+            )
             all_entries, skipped = self._generate_parallel(rules, skip_invalid=skip_invalid)
         else:
+            log.info("Corpus generation: sequential mode (%d rules)", len(rules))
             all_entries, skipped = self._generate_sequential(rules, skip_invalid=skip_invalid)
 
         duration = time.monotonic() - t0
@@ -165,14 +220,36 @@ class CorpusGenerator:
         *,
         skip_invalid: bool = False,
     ) -> tuple[list[CorpusEntry], int]:
-        """Parallel generation using ProcessPoolExecutor."""
+        """Parallel generation using ProcessPoolExecutor.
+
+        The pool uses the configured `mp_context` (default "spawn"). We bound
+        every worker future with `_per_worker_timeout_s` so a single hung
+        worker cannot block the pool's shutdown indefinitely.
+        """
+        from concurrent.futures import TimeoutError as FutureTimeoutError
+
         all_entries: list[CorpusEntry] = []
         skipped = 0
         n_workers = min(len(rules), os.cpu_count() or 4)
-        ctx = multiprocessing.get_context("fork") if _USE_FORK else None
+
+        try:
+            ctx = multiprocessing.get_context(self._mp_context)
+        except ValueError as exc:
+            raise GenerationError(
+                f"Invalid mp_context '{self._mp_context}': {exc}",
+                rule_name="<config>",
+            ) from exc
+
+        log.info(
+            "Spawning %d worker(s) for %d rules (mp_context=%s, per_worker_timeout=%.0fs)",
+            n_workers,
+            len(rules),
+            self._mp_context,
+            self._per_worker_timeout_s,
+        )
 
         with ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx) as executor:
-            futures = {}
+            futures: dict[Future[Any], str] = {}
             for rule in rules:
                 rule_seed = None
                 if self._seed is not None:
@@ -190,21 +267,47 @@ class CorpusGenerator:
                 )
                 futures[future] = rule.name
 
-            for future in as_completed(futures):
-                rule_name = futures[future]
-                try:
-                    results = future.result()
-                    all_entries.extend(
-                        CorpusEntry(text=text, source_rule=sr, is_negative=neg)
-                        for text, sr, neg in results
-                    )
-                except GenerationError:
-                    if skip_invalid:
-                        log.warning("Rule '%s': generation failed, skipping", rule_name)
-                        skipped += 1
-                    else:
-                        raise
+            try:
+                for future in as_completed(
+                    futures, timeout=self._per_worker_timeout_s * len(rules)
+                ):
+                    rule_name = futures[future]
+                    try:
+                        results = future.result(timeout=self._per_worker_timeout_s)
+                        all_entries.extend(
+                            CorpusEntry(text=text, source_rule=sr, is_negative=neg)
+                            for text, sr, neg in results
+                        )
+                    except GenerationError:
+                        if skip_invalid:
+                            log.warning("Rule '%s': generation failed, skipping", rule_name)
+                            skipped += 1
+                        else:
+                            raise
+                    except FutureTimeoutError as exc:
+                        msg = (
+                            f"Rule '{rule_name}': worker did not return within "
+                            f"{self._per_worker_timeout_s:.0f}s; treating as hung"
+                        )
+                        log.error(msg)
+                        if skip_invalid:
+                            skipped += 1
+                        else:
+                            raise GenerationError(msg, rule_name=rule_name) from exc
+            except FutureTimeoutError as exc:
+                # Total deadline exceeded — surface the unfinished rules.
+                pending = [futures[f] for f in futures if not f.done()]
+                msg = (
+                    f"Parallel generation timed out: {len(pending)} rule(s) "
+                    f"still pending after {self._per_worker_timeout_s * len(rules):.0f}s. "
+                    f"Pending: {pending[:5]}{'...' if len(pending) > 5 else ''}"
+                )
+                log.error(msg)
+                raise GenerationError(msg, rule_name="<batch>") from exc
+            finally:
+                log.info("Shutting down worker pool")
 
+        log.info("Worker pool shutdown complete")
         return all_entries, skipped
 
     def _generate_for_rule(self, rule: Rule) -> list[CorpusEntry]:

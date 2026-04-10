@@ -7,7 +7,7 @@ include = ["crossfire*"]
 
 [project]
 name = "crossfire-rules"
-version = "0.2.0"
+version = "0.2.1"
 description = "Regex rule overlap analyzer for DLP, secret scanning, SAST, and IDS tools"
 readme = "README.md"
 license = "MIT"

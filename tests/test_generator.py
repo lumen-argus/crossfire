@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import multiprocessing
 import re
+import threading
 
 import pytest
 
@@ -200,6 +202,111 @@ class TestParallelGeneration:
         sources = {e.source_rule for e in entries}
         assert "impossible" not in sources
         assert len(sources) == 8
+
+
+class TestParallelOverride:
+    """Tests for the explicit `parallel` parameter and its safety properties."""
+
+    def test_parallel_false_forces_sequential(self):
+        """parallel=False must not spawn any child processes."""
+        before = set(multiprocessing.active_children())
+        gen = CorpusGenerator(samples_per_rule=10, negative_samples=0, seed=42, parallel=False)
+        rules = [_make_rule(f"r{i}", rf"[a-z]{{{i + 3}}}") for i in range(20)]
+        entries = gen.generate(rules)
+        after = set(multiprocessing.active_children())
+        assert after == before, "parallel=False unexpectedly spawned worker processes"
+        assert {e.source_rule for e in entries} == {f"r{i}" for i in range(20)}
+
+    def test_parallel_true_spawns_workers_even_for_small_set(self):
+        """parallel=True should override the auto threshold."""
+        gen = CorpusGenerator(
+            samples_per_rule=15, min_valid_samples=5, negative_samples=0, seed=42, parallel=True
+        )
+        rules = [_make_rule(f"r{i}", rf"[a-z]{{{i + 3}}}") for i in range(3)]
+        entries = gen.generate(rules)
+        assert {e.source_rule for e in entries} == {f"r{i}" for i in range(3)}
+
+    def test_per_call_parallel_override(self):
+        """The `parallel` argument on generate() overrides the constructor setting."""
+        gen = CorpusGenerator(
+            samples_per_rule=15, min_valid_samples=5, negative_samples=0, seed=42, parallel=True
+        )
+        before = set(multiprocessing.active_children())
+        rules = [_make_rule(f"r{i}", rf"[a-z]{{{i + 3}}}") for i in range(15)]
+        entries = gen.generate(rules, parallel=False)
+        after = set(multiprocessing.active_children())
+        assert after == before
+        assert {e.source_rule for e in entries} == {f"r{i}" for i in range(15)}
+
+    def test_sequential_from_thread(self):
+        """Regression: sequential mode must work when called from a worker thread.
+
+        The previous parallel implementation used fork-from-thread, which deadlocked
+        ProcessPoolExecutor shutdown in multi-threaded host processes. Sequential mode
+        avoids the issue entirely. This test pins the contract.
+        """
+        result_holder: dict[str, object] = {}
+
+        def _run() -> None:
+            try:
+                gen = CorpusGenerator(
+                    samples_per_rule=10, negative_samples=0, seed=42, parallel=False
+                )
+                rules = [_make_rule(f"r{i}", rf"[a-z]{{{i + 3}}}") for i in range(20)]
+                result_holder["entries"] = gen.generate(rules)
+            except Exception as exc:
+                result_holder["error"] = exc
+
+        thread = threading.Thread(target=_run, name="test-sequential-from-thread")
+        thread.start()
+        thread.join(timeout=30)
+        assert not thread.is_alive(), "sequential generation hung when called from a thread"
+        assert "error" not in result_holder, f"unexpected error: {result_holder.get('error')!r}"
+        entries = result_holder["entries"]
+        assert {e.source_rule for e in entries} == {f"r{i}" for i in range(20)}  # type: ignore[union-attr]
+
+    def test_invalid_mp_context_raises_clean_error(self):
+        """A bogus mp_context should raise GenerationError with a clear message."""
+        gen = CorpusGenerator(
+            samples_per_rule=8,
+            negative_samples=0,
+            seed=42,
+            parallel=True,
+            mp_context="not-a-real-context",
+        )
+        rules = [_make_rule(f"r{i}", rf"[a-z]{{{i + 3}}}") for i in range(10)]
+        with pytest.raises(GenerationError, match="Invalid mp_context"):
+            gen.generate(rules)
+
+
+class TestSpawnContext:
+    """Verify that the default mp_context is the safe one."""
+
+    def test_default_mp_context_is_spawn(self):
+        gen = CorpusGenerator(samples_per_rule=10, negative_samples=0, seed=42)
+        assert gen._mp_context == "spawn"
+
+    def test_explicit_spawn_works(self):
+        gen = CorpusGenerator(
+            samples_per_rule=10, negative_samples=0, seed=42, parallel=True, mp_context="spawn"
+        )
+        rules = [_make_rule(f"r{i}", rf"[a-z]{{{i + 3}}}") for i in range(10)]
+        entries = gen.generate(rules)
+        assert {e.source_rule for e in entries} == {f"r{i}" for i in range(10)}
+
+    @pytest.mark.skipif(
+        not hasattr(multiprocessing, "get_all_start_methods")
+        or "fork" not in multiprocessing.get_all_start_methods(),
+        reason="fork start method not available on this platform",
+    )
+    def test_explicit_fork_still_works_for_single_process_callers(self):
+        """CLI users on Linux can still opt into fork for faster worker startup."""
+        gen = CorpusGenerator(
+            samples_per_rule=10, negative_samples=0, seed=42, parallel=True, mp_context="fork"
+        )
+        rules = [_make_rule(f"r{i}", rf"[a-z]{{{i + 3}}}") for i in range(10)]
+        entries = gen.generate(rules)
+        assert {e.source_rule for e in entries} == {f"r{i}" for i in range(10)}
 
 
 class TestEdgeCases:
