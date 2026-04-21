@@ -5,6 +5,12 @@ All notable changes to Crossfire will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.8] - 2026-04-21
+
+### Fixed
+
+- **Non-greedy quantifiers no longer get sampled like greedy ones.** `sre_parse` tags `{m,n}?`, `*?`, and `+?` as `min_repeat` and the greedy forms as `max_repeat`; upstream rstr (3.2.x) dispatches both through the same handler and draws the repeat count uniformly from `[m, n]` — throwing away the non-greedy semantics. For patterns with wide non-greedy holes like `(?s:.){0,200}?`, rstr generated ~100 random chars in the gap (with `.` sampled from `string.printable`, including `\v`/`\x0c`/`\n`). The result (a) bore no resemblance to what the regex would actually match against real text — the re engine fills non-greedy regions with the minimum the surrounding anchors allow — and (b) blew past `max_string_length=256`, so ~99% of rstr calls got filtered out, the few survivors all shared one degenerate shape, and stage-2 mutational padding then fanned that single base into a whole corpus of near-duplicates. `crossfire.generator` now patches `rstr.xeger.Xeger._handle_state` at module import: when the opcode is `min_repeat`, we emit exactly `start_range` repetitions — the semantically correct minimum, matching how the re engine behaves. `max_repeat` still goes through `_handle_repeat` (with the `{N>100}` cap fix from 0.2.7). Measured effect on the real-world `kubernetes_secret_yaml` gitleaks rule (the 0.2.7 degenerate-sample report): from 27 samples / ~10 shared middles to 30 samples / 29 unique middles at `samples_per_rule=30`, `max_string_length=256`. This resolves the last 0.2.7 known limitation — all 6 rules in the lumen-argus community.json regression set now produce real, diverse coverage. Regression coverage: `tests/test_generator.py::TestNonGreedyRepeat`.
+
 ## [0.2.7] - 2026-04-21
 
 ### Fixed
