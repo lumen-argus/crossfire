@@ -52,7 +52,9 @@ def _patched_handle_repeat(self: Any, start_range: int, end_range: int, value: s
     return "".join(result)
 
 
-_RstrXeger._handle_repeat = _patched_handle_repeat
+# setattr (not direct assignment) avoids mypy's method-assign error
+# without an ignore that warn_unused_ignores flips on newer Python versions.
+setattr(_RstrXeger, "_handle_repeat", _patched_handle_repeat)  # noqa: B010
 
 # We default to "spawn" rather than "fork" because forking from a multi-threaded
 # parent process is unsafe: child processes inherit memory but only the calling
