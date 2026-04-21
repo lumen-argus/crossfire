@@ -5,6 +5,12 @@ All notable changes to Crossfire will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2026-04-21
+
+### Fixed
+
+- **Generator no longer fails on broad `\s`/`\S`/`\w`-class patterns when `google-re2` is installed.** `rstr.xeger` builds on stdlib `sre_parse`, but the generator validated synthesized samples against `rule.compiled` — which is an RE2 pattern when `google-re2` is available. RE2's character classes are narrower than stdlib's (RE2 `\s` = `[\t\n\f\r ]`, while stdlib also matches `\v` and Unicode whitespace), so self-consistent rstr output got rejected and broad patterns like `(?:secret|password|token|key)\s*[=:]\s*\S+` produced "only 1 valid samples (minimum: 10)". Generator now compiles a stdlib-`re` validator per rule at generation time — safe unconditionally because `crossfire.regex.compile` already guarantees every loaded pattern is stdlib-compilable. Resolves the "Known issue" disclosed in 0.2.3 (5 CLI/plugin tests that regressed with `google-re2` installed) and the `community.json` corpus-generation regression reported downstream (6 rules including `ssh_private_key`, `private_key_pem`, `atlassian_api_token`). Regression test added in `tests/test_generator.py::TestCharClassSemanticDrift`.
+
 ## [0.2.4] - 2026-04-21
 
 ### Fixed

@@ -560,6 +560,83 @@ class TestWorkerCompileFailure:
             gen.generate(rules, skip_invalid=False)
 
 
+class TestCharClassSemanticDrift:
+    """Regression guard for the rstr/RE2 `\\s`/`\\S`/`\\w` grammar mismatch.
+
+    `rstr.xeger` is built on stdlib `sre_parse`, so it emits strings that
+    are self-consistent against stdlib grammar. When `google-re2` is
+    installed, the loader returns RE2-compiled patterns whose character
+    classes are narrower (e.g. RE2 `\\s` = `[\\t\\n\\f\\r ]`, while stdlib
+    `\\s` also matches `\\v` and Unicode whitespace). In 0.2.3, the
+    generator validated with `rule.compiled`, so broad patterns like
+    `(?:foo|bar)\\s*[=:]\\s*\\S+` produced ~1 sample out of 30 attempts —
+    every rstr-synthesized match was rejected by RE2. Fixed by validating
+    with a stdlib `re.compile` of the same pattern (safe because the
+    loader guarantees stdlib-compilability).
+    """
+
+    @pytest.mark.skipif(
+        not __import__("crossfire.regex", fromlist=["is_re2_available"]).is_re2_available(),
+        reason="RE2/stdlib class drift is only observable when google-re2 is installed",
+    )
+    def test_broad_whitespace_pattern_generates_when_re2_compiled(self):
+        """A pattern with `\\s*` and `\\S+` must produce enough samples when
+        `rule.compiled` is an RE2 pattern. Vacuous without google-re2 since
+        `cre.compile` would fall through to stdlib — the very engine the
+        fix uses for validation — so the test is RE2-gated."""
+        from crossfire import regex as cre
+
+        pattern = r"(?:secret|password|token|key)\s*[=:]\s*\S+"
+        rule = Rule(
+            name="broad_whitespace",
+            pattern=pattern,
+            compiled=cre.compile(pattern),  # RE2 when google-re2 is installed
+        )
+        gen = CorpusGenerator(
+            samples_per_rule=20,
+            min_valid_samples=10,
+            negative_samples=0,
+            seed=42,
+        )
+        entries = gen.generate([rule])
+        positive = [e for e in entries if not e.is_negative]
+        assert len(positive) >= 10, (
+            f"generator produced only {len(positive)} samples for broad "
+            f"whitespace pattern; RE2/stdlib class drift likely regressed"
+        )
+
+    def test_generator_uses_stdlib_for_validation_not_rule_compiled(self):
+        """White-box: inject a Rule whose `compiled` rejects everything, and
+        confirm the generator ignores it for validation. If the generator
+        ever goes back to using `rule.compiled`, this test flips red.
+        """
+
+        class RejectAll:
+            # Match the `CompiledPattern` protocol (`search` + `match`) so the
+            # mock is drop-in even if future generator code paths reach for
+            # `.match`. Both return None == no match.
+            def search(self, s: str) -> None:
+                return None
+
+            def match(self, s: str) -> None:
+                return None
+
+        rule = Rule(
+            name="stdlib_validated",
+            pattern=r"[a-z]{5}",
+            compiled=RejectAll(),  # stdlib would have matched; this rejects
+        )
+        gen = CorpusGenerator(
+            samples_per_rule=15,
+            min_valid_samples=10,
+            negative_samples=0,
+            seed=42,
+        )
+        entries = gen.generate([rule])
+        positive = [e for e in entries if not e.is_negative]
+        assert len(positive) >= 10
+
+
 class TestSpawnContext:
     """Verify that the default mp_context is the safe one."""
 
