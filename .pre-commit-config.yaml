@@ -10,6 +10,11 @@ repos:
       - id: check-merge-conflict
       - id: debug-statements
       - id: detect-private-key
+        # Test fixtures and CHANGELOG reference PEM key-header markers as
+        # example patterns (e.g. gitleaks rules that match leaked keys) —
+        # they're fixture/doc content, not real keys. Scope the exclude
+        # narrowly; every other file still gets scanned.
+        exclude: ^(CHANGELOG\.md|tests/test_generator\.py)$
       - id: check-added-large-files
         args: ['--maxkb=500']
 

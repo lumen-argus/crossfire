@@ -5,6 +5,17 @@ All notable changes to Crossfire will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.6] - 2026-04-21
+
+### Added
+
+- **Mutational corpus augmentation** (pipeline stage 2). After `rstr.xeger` produces the minimal matches for a pattern, each base match is padded with random prefix/suffix context and re-validated. This is the standard mutational-fuzzing move (AFL/libFuzzer style) and mirrors how real corpora look — the matched substring embedded in surrounding text — so literal-heavy but unanchored rules now produce the full `samples_per_rule` instead of 1-5. Rules like `-----BEGIN OPENSSH PRIVATE KEY-----`, `-----BEGIN (?:RSA|EC|DSA|OPENSSH)?PRIVATE KEY-----`, and `(?i)\[INST\]` go from 1-5 samples to 30 samples at default settings. Fully-anchored narrow patterns (`^literal$`) remain at their intrinsic minimum — padding breaks the anchor so re-validation rejects the candidates, as expected.
+
+### Fixed
+
+- **`rstr.xeger` exceptions no longer abort sampling.** The rstr loop used to `break` on the first exception; some gitleaks-style patterns raise intermittently (~40-50% of calls) but would otherwise produce plenty of valid output. The loop now continues through exceptions, so patterns like `atlassian_api_token` that previously generated zero samples (first call threw, loop exited) now generate the full `samples_per_rule`.
+- **Narrow-match-language rules no longer false-fail `min_valid_samples`.** Combined with mutational augmentation above, rules whose regex has an inherently small match set now reach the sample target through padding instead of tripping the hard failure path. Downstream impact for `lumen-argus/community.json` (90-rule set): 4 of the 6 previously-regressing rules now generate cleanly (`ssh_private_key`, `private_key_pem`, `inst_tag`, `atlassian_api_token`). The remaining 2 remain skipped under `skip_invalid=True` because the current rstr + padding + random-ASCII pipeline can't synthesize them: `cloudflare_origin_ca_key` has a `{146}` fixed-repetition clause that trips rstr's internal sampler (`randint(146, 100)` → `ValueError`), and `kubernetes_secret_yaml` combines `(?s:.){0,200}?` wildcards with literal anchors that random padding can't satisfy. A sampler that handles large fixed-count repetitions (or a structured YAML-aware generator) would recover them; out of scope for this release.
+
 ## [0.2.5] - 2026-04-21
 
 ### Fixed
