@@ -71,7 +71,22 @@ def _generate_for_rule_worker(
     if rule_seed is not None:
         random.seed(rule_seed)
 
-    compiled = re.compile(rule_pattern)
+    # Defense-in-depth: the loader's `crossfire.regex.compile` already rejects
+    # any pattern stdlib `re` cannot compile, so this branch should be
+    # unreachable when the Rule came from `load_rules`. It still matters for
+    # library callers who construct Rule objects directly and feed them to
+    # CorpusGenerator, bypassing the loader — without this guard their rogue
+    # pattern would crash the worker pool and defeat skip_invalid.
+    try:
+        compiled = re.compile(rule_pattern)
+    except re.error as exc:
+        raise GenerationError(
+            f"Rule '{rule_name}': pattern is not compilable by the stdlib re "
+            f"module ({exc}). The loader normally catches this; if you built "
+            f"this Rule directly, run `crossfire.regex.compile` on the pattern "
+            f"first so load-time validation still applies.",
+            rule_name=rule_name,
+        ) from exc
 
     gen = CorpusGenerator(
         samples_per_rule=samples_per_rule,

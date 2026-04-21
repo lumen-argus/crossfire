@@ -488,6 +488,78 @@ class TestParallelTimeouts:
             gen._generate_parallel(rules, skip_invalid=False)
 
 
+class TestWorkerCompileFailure:
+    """The worker re-compiles patterns with stdlib `re`. If the loader accepted
+    a pattern via RE2 that stdlib can't compile (e.g. non-leading `(?i)`), the
+    worker must surface that as a per-rule GenerationError so `--skip-invalid`
+    can honor its promise — not crash the whole batch with `re.PatternError`.
+    """
+
+    @staticmethod
+    def _bad_pattern_rule() -> Rule:
+        # This test targets the worker's defense-in-depth branch: the loader
+        # now rejects non-leading global flags at load time, so in normal use a
+        # pattern like `(?i)foo(?i)bar` never reaches a worker. We bypass
+        # `crossfire.regex.compile` (and therefore the loader's stdlib-first
+        # validation) by stuffing a MagicMock into `compiled`, so only
+        # `rule.pattern` — the string that the worker re-compiles with stdlib
+        # `re` — carries the bad flag. That mirrors the one scenario the
+        # defense-in-depth guard is there for: library callers who construct
+        # `Rule` objects directly and skip `load_rules`. Test is stable whether
+        # or not `google-re2` is installed.
+        from unittest.mock import MagicMock
+
+        return Rule(name="bad_flag", pattern=r"(?i)foo(?i)bar", compiled=MagicMock())
+
+    def test_worker_translates_re_error_to_generation_error(self):
+        """Unit test for the worker itself — no subprocesses."""
+        from crossfire.generator import _generate_for_rule_worker
+
+        with pytest.raises(GenerationError, match="not compilable by the stdlib re"):
+            _generate_for_rule_worker(
+                rule_name="bad_flag",
+                rule_pattern=r"(?i)foo(?i)bar",
+                samples_per_rule=10,
+                negative_samples=0,
+                max_string_length=256,
+                generation_timeout_s=1.0,
+                min_valid_samples=5,
+                rule_seed=42,
+            )
+
+    def test_parallel_skip_invalid_survives_stdlib_incompatible_pattern(self):
+        """End-to-end: a bad pattern in a parallel batch should be skipped, not crash."""
+        gen = CorpusGenerator(
+            samples_per_rule=15,
+            min_valid_samples=5,
+            negative_samples=0,
+            generation_timeout_s=0.5,
+            seed=42,
+            parallel=True,
+        )
+        rules = [_make_rule(f"ok_{i}", rf"[a-z]{{{i + 3}}}") for i in range(8)]
+        rules.append(self._bad_pattern_rule())
+        entries = gen.generate(rules, skip_invalid=True)
+        sources = {e.source_rule for e in entries}
+        assert "bad_flag" not in sources
+        assert sources == {f"ok_{i}" for i in range(8)}
+
+    def test_parallel_raises_clean_error_without_skip_invalid(self):
+        """Without skip_invalid, the failure surfaces as GenerationError — not raw re.error."""
+        gen = CorpusGenerator(
+            samples_per_rule=15,
+            min_valid_samples=5,
+            negative_samples=0,
+            generation_timeout_s=0.5,
+            seed=42,
+            parallel=True,
+        )
+        rules = [_make_rule(f"ok_{i}", rf"[a-z]{{{i + 3}}}") for i in range(8)]
+        rules.append(self._bad_pattern_rule())
+        with pytest.raises(GenerationError, match="not compilable by the stdlib re"):
+            gen.generate(rules, skip_invalid=False)
+
+
 class TestSpawnContext:
     """Verify that the default mp_context is the safe one."""
 
