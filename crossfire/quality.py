@@ -13,6 +13,7 @@ except ImportError:
     import sre_parse  # Python < 3.13
 from dataclasses import dataclass, field
 
+from crossfire.classifier import _compute_overlap_counts
 from crossfire.evaluator import MatchMatrix
 from crossfire.models import CorpusEntry, Rule
 
@@ -73,7 +74,7 @@ def assess_quality(
 
     log.info("Quality assessment started for %d rules", len(rules))
 
-    overlap_counts = _compute_overlap_counts(matrix, rules)
+    overlap_counts = _compute_overlap_counts(matrix, [r.name for r in rules])
     unique_coverage = _compute_unique_coverage(matrix, corpus_sizes, rules)
     random_corpus = _generate_random_strings(specificity_samples, rng)
 
@@ -229,24 +230,6 @@ class _QualityAssessor:
             overlap_count=ovr_count,
             flags=flags,
         )
-
-
-def _compute_overlap_counts(
-    matrix: MatchMatrix,
-    rules: list[Rule],
-) -> dict[str, int]:
-    """Count how many other rules each rule overlaps with."""
-    counts: dict[str, int] = {r.name: 0 for r in rules}
-    rule_names = {r.name for r in rules}
-
-    for rule_name, matches in matrix.items():
-        if rule_name not in rule_names:
-            continue
-        for other_name, count in matches.items():
-            if other_name != rule_name and count > 0 and other_name in rule_names:
-                counts[rule_name] += 1
-
-    return counts
 
 
 def _compute_unique_coverage(

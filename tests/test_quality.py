@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import re
 
+from crossfire.classifier import _compute_overlap_counts
 from crossfire.models import CorpusEntry, Rule
 from crossfire.quality import (
     QualityReport,
-    _compute_overlap_counts,
     _compute_unique_coverage,
     _pattern_complexity,
     assess_quality,
@@ -41,14 +41,14 @@ class TestOverlapCounts:
     def test_no_overlaps(self):
         rules = [_make_rule("a", "x"), _make_rule("b", "y")]
         matrix = {"a": {"a": 10}, "b": {"b": 10}}
-        counts = _compute_overlap_counts(matrix, rules)
+        counts = _compute_overlap_counts(matrix, [r.name for r in rules])
         assert counts["a"] == 0
         assert counts["b"] == 0
 
     def test_mutual_overlap(self):
         rules = [_make_rule("a", "x"), _make_rule("b", "y")]
         matrix = {"a": {"a": 10, "b": 5}, "b": {"a": 5, "b": 10}}
-        counts = _compute_overlap_counts(matrix, rules)
+        counts = _compute_overlap_counts(matrix, [r.name for r in rules])
         assert counts["a"] == 1
         assert counts["b"] == 1
 
@@ -65,7 +65,7 @@ class TestOverlapCounts:
             "b": {"b": 10},
             "c": {"c": 10},
         }
-        counts = _compute_overlap_counts(matrix, rules)
+        counts = _compute_overlap_counts(matrix, [r.name for r in rules])
         assert counts["broad"] == 3
 
 

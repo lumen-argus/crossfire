@@ -159,6 +159,7 @@ def render_csv(report: AnalysisReport, output: TextIO) -> None:
             "relationship",
             "recommendation",
             "reason",
+            "downstream_label_loss",
         ]
     )
 
@@ -176,6 +177,7 @@ def render_csv(report: AnalysisReport, output: TextIO) -> None:
                 r.relationship.value,
                 r.recommendation.value,
                 r.reason,
+                "true" if r.downstream_label_loss else "false",
             ]
         )
 
