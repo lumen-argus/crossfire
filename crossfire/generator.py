@@ -6,6 +6,7 @@ import logging
 import multiprocessing
 import os
 import random
+import re
 import string
 import time
 import zlib
@@ -327,7 +328,18 @@ class CorpusGenerator:
 
     def _generate_for_rule(self, rule: Rule) -> list[CorpusEntry]:
         """Generate corpus entries for a single rule."""
-        positive = self._generate_positive(rule)
+        # Validate generated samples with stdlib `re`, not `rule.compiled`.
+        # `rstr.xeger` is built on stdlib `sre_parse`, so samples it emits
+        # are self-consistent against stdlib grammar. `rule.compiled` may
+        # be an RE2 pattern (when google-re2 is installed), and RE2's
+        # `\s`/`\S`/`\w` class definitions are narrower than stdlib's —
+        # strings rstr considers valid matches get rejected by RE2, causing
+        # broad patterns like `\s*...\S+` to fail generation entirely. The
+        # loader guarantees every pattern is stdlib-compilable (see
+        # `crossfire.regex.compile`), so this is safe unconditionally.
+        validator = re.compile(rule.pattern)
+
+        positive = self._generate_positive(rule, validator)
 
         if len(positive) < self.min_valid_samples:
             raise GenerationError(
@@ -337,7 +349,7 @@ class CorpusGenerator:
                 rule_name=rule.name,
             )
 
-        negative = self._generate_negative(rule, positive)
+        negative = self._generate_negative(rule, positive, validator)
 
         log.debug(
             "Rule '%s': generated %d positive, %d negative strings",
@@ -352,7 +364,7 @@ class CorpusGenerator:
         )
         return entries
 
-    def _generate_positive(self, rule: Rule) -> list[str]:
+    def _generate_positive(self, rule: Rule, validator: re.Pattern[str]) -> list[str]:
         """Generate matching strings for a rule using rstr with fallback."""
         # Attempt count: generate more than needed to account for validation failures
         attempt_count = self.samples_per_rule * 3
@@ -368,7 +380,7 @@ class CorpusGenerator:
                 break
             try:
                 s = rstr.xeger(rule.pattern)
-                if len(s) <= self.max_string_length and rule.compiled.search(s):
+                if len(s) <= self.max_string_length and validator.search(s):
                     strings.add(s)
             except Exception:
                 rstr_ok = False
@@ -381,7 +393,7 @@ class CorpusGenerator:
                     rule.name,
                 )
             # Strategy 2: fallback generator
-            self._fallback_generate(rule, strings, deadline)
+            self._fallback_generate(rule, strings, deadline, validator)
 
         return list(strings)
 
@@ -390,6 +402,7 @@ class CorpusGenerator:
         rule: Rule,
         strings: set[str],
         deadline: float,
+        validator: re.Pattern[str],
     ) -> None:
         """Fallback string generation using random strings with guided mutations."""
         charset = string.ascii_letters + string.digits + string.punctuation + " "
@@ -406,10 +419,12 @@ class CorpusGenerator:
                 if len(strings) >= self.samples_per_rule:
                     break
                 s = "".join(random.choices(charset, k=length))
-                if len(s) <= self.max_string_length and rule.compiled.search(s):
+                if len(s) <= self.max_string_length and validator.search(s):
                     strings.add(s)
 
-    def _generate_negative(self, rule: Rule, positive: list[str]) -> list[str]:
+    def _generate_negative(
+        self, rule: Rule, positive: list[str], validator: re.Pattern[str]
+    ) -> list[str]:
         """Generate near-miss non-matching strings by mutating positive samples."""
         if not positive or self.negative_samples <= 0:
             return []
@@ -432,7 +447,7 @@ class CorpusGenerator:
             candidate = mutator(base)
 
             # Negative sample must NOT match the source rule
-            if candidate and not rule.compiled.search(candidate):
+            if candidate and not validator.search(candidate):
                 negatives.add(candidate)
 
         return list(negatives)
