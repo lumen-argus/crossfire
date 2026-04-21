@@ -335,6 +335,96 @@ class TestRstrRepeatPatch:
             assert 2 <= len(s) <= 5
 
 
+class TestNonGreedyRepeat:
+    """Upstream rstr routes `min_repeat` (non-greedy `{m,n}?`, `*?`, `+?`)
+    through the same handler as `max_repeat`, sampling uniformly over
+    `[m, n]`. That breaks wide non-greedy holes like `(?s:.){0,200}?`:
+    the generator emits ~100 random chars there, the result blows past
+    `max_string_length`, gets filtered, and the few survivors all share
+    one degenerate shape — stage-2 padding then inflates that single base
+    into a pseudo-corpus. Crossfire's patch makes `min_repeat` emit
+    exactly `start_range` repetitions (the semantically correct minimum),
+    which is how the re engine would actually fill that region against
+    real text. These tests lock that behavior in.
+    """
+
+    def test_non_greedy_zero_min_emits_empty(self):
+        """`(?s:.){0,100}?` should produce zero dot-any chars, not ~50."""
+        import rstr
+
+        import crossfire.generator  # noqa: F401
+
+        # A pattern where the only variability is the non-greedy hole.
+        # With the fix, the hole is always empty → output is exactly "ab".
+        for _ in range(20):
+            s = rstr.xeger(r"a(?s:.){0,100}?b")
+            assert s == "ab"
+
+    def test_non_greedy_nonzero_min_emits_min(self):
+        """`X{5,50}?` should emit exactly 5 copies of X — the explicit min."""
+        import rstr
+
+        import crossfire.generator  # noqa: F401
+
+        for _ in range(20):
+            s = rstr.xeger(r"([a-f]{5,50}?)")
+            assert len(s) == 5
+            assert all(c in "abcdef" for c in s)
+
+    def test_greedy_still_varies(self):
+        """Greedy `{m,n}` (max_repeat) must keep varying — only non-greedy
+        is clamped to the minimum."""
+        import rstr
+
+        import crossfire.generator  # noqa: F401
+
+        lengths = {len(rstr.xeger(r"[a-z]{2,20}")) for _ in range(40)}
+        assert len(lengths) >= 3
+
+    def test_kubernetes_secret_yaml_diversity(self):
+        """Regression for 0.2.7 degenerate-sample report: the gitleaks
+        `kubernetes_secret_yaml` pattern has two wide `(?s:.){0,N}?` holes.
+        Before the non-greedy fix, ~99% of raw rstr outputs overshot
+        `max_string_length=256` and the few passing samples shared the
+        same degenerate middle, which stage-2 padding then multiplied.
+        After the fix, each sample's middle must be distinct.
+        """
+        # The exact real-world pattern from community.json (gitleaks).
+        pattern = (
+            r"(?i)(?:\bkind:[ \t]*[\"']?\bsecret\b[\"']?(?s:.){0,200}?"
+            r"\bdata:(?s:.){0,100}?\s+([\w.-]+:(?:[ \t]*(?:\||>[-+]?)\s+)?"
+            r"[ \t]*(?:[\"']?[a-z0-9+/]{10,}={0,3}[\"']?"
+            r"|\{\{[ \t\w\"|$:=,.-]+}}|\"\"|''))|\bdata:(?s:.){0,100}?"
+            r"\s+([\w.-]+:(?:[ \t]*(?:\||>[-+]?)\s+)?[ \t]*"
+            r"(?:[\"']?[a-z0-9+/]{10,}={0,3}[\"']?"
+            r"|\{\{[ \t\w\"|$:=,.-]+}}|\"\"|''))(?s:.){0,200}?"
+            r"\bkind:[ \t]*[\"']?\bsecret\b[\"']?)"
+        )
+        rule = _make_rule("kubernetes_secret_yaml", pattern)
+        gen = CorpusGenerator(
+            samples_per_rule=30, min_valid_samples=15, negative_samples=0, seed=42
+        )
+        entries = gen.generate([rule])
+        positives = [e.text for e in entries if not e.is_negative]
+        assert len(positives) >= 15
+
+        # Middle-of-string uniqueness: the test from the team's 0.2.7 report.
+        # Prefixes/suffixes are stage-2 padding noise; the middle reveals
+        # whether the base matches are actually distinct.
+        def middle(s: str, k: int = 50) -> str:
+            if len(s) <= k:
+                return s
+            mid = len(s) // 2
+            return s[mid - k // 2 : mid + k // 2]
+
+        unique_middles = {middle(s) for s in positives}
+        # Pre-fix: 10/27. Post-fix: should be close to 1:1 with sample count.
+        assert len(unique_middles) >= len(positives) * 0.7, (
+            f"only {len(unique_middles)} unique middles across {len(positives)} samples "
+            f"— non-greedy fix regressed, samples are degenerate again"
+        )
+
+
 class TestIntermittentRstrFailures:
     """Some patterns make rstr throw on a fraction of calls — the generator
     must not `break` on the first exception, or we lose the useful output

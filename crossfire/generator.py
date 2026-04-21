@@ -52,9 +52,43 @@ def _patched_handle_repeat(self: Any, start_range: int, end_range: int, value: s
     return "".join(result)
 
 
+_RSTR_ORIGINAL_HANDLE_STATE = _RstrXeger._handle_state
+
+
+def _patched_handle_state(self: Any, state: Any) -> Any:
+    """Respect non-greedy quantifiers when generating samples.
+
+    `sre_parse` tags `{m,n}?`, `*?`, `+?` as `min_repeat` and the greedy
+    forms as `max_repeat`. Upstream rstr routes both to the same handler
+    and draws the repeat count uniformly from `[m, n]` in either case —
+    throwing away the non-greedy semantics.
+
+    For pattern-matching, that's not how non-greedy works. `(?s:.){0,200}?`
+    is the author saying "match as few dots as possible"; the re engine
+    would fill that region with the minimum the surrounding anchors allow.
+    A generator that picks ~100 random dot-any characters produces strings
+    that (a) look nothing like what this rule actually matches in real text
+    and (b) blow past `max_string_length`, so ~99% of rstr calls get
+    filtered out. The few survivors all share the same degenerate shape,
+    and stage-2 padding then fans one base sample into a whole corpus of
+    near-duplicates — the `kubernetes_secret_yaml` degeneracy reported
+    against 0.2.7.
+
+    Fix: for `min_repeat`, emit exactly `start_range` repetitions — the
+    semantically correct minimum. Greedy `max_repeat` still goes through
+    `_handle_repeat` (with the `{N>100}` cap fix above).
+    """
+    opcode, value = state
+    if opcode.name.lower() == "min_repeat":
+        start_range, _end_range, sub = value
+        return "".join("".join(self._handle_state(i) for i in sub) for _ in range(start_range))
+    return _RSTR_ORIGINAL_HANDLE_STATE(self, state)
+
+
 # setattr (not direct assignment) avoids mypy's method-assign error
 # without an ignore that warn_unused_ignores flips on newer Python versions.
 setattr(_RstrXeger, "_handle_repeat", _patched_handle_repeat)  # noqa: B010
+setattr(_RstrXeger, "_handle_state", _patched_handle_state)  # noqa: B010
 
 # We default to "spawn" rather than "fork" because forking from a multi-threaded
 # parent process is unsafe: child processes inherit memory but only the calling
