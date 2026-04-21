@@ -106,18 +106,32 @@ class TestMultipleRules:
             assert len(positive) >= 10
 
 
-# A pattern where rstr.xeger reliably raises (ValueError: empty range in
-# randint) — the quantifier on the second `[a-f0-9]` range creates a length
-# rstr's sampler can't satisfy. Used by tests that need "genuinely
-# unsynthesizable" behavior. Same shape as the real `cloudflare_origin_ca_key`
-# gitleaks rule that motivated this test strategy.
-_UNSYNTHESIZABLE_PATTERN = r"\b(v1\.0-[a-f0-9]{24}-[a-f0-9]{146})(?:[\x60'\"\s;]|\\[nr]|$)"
+def _force_rstr_to_fail(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make rstr.xeger raise on every call so the stage-1 pipeline produces
+    zero base matches. Used by tests that need a fully-unsynthesizable
+    scenario; simulates the real-world case of patterns with features rstr
+    can't model (and that aren't reachable via random-ASCII fallback either).
+    """
+    import rstr as rstr_mod
+
+    def always_raise(pattern: str) -> str:
+        raise ValueError("forced rstr failure for test")
+
+    monkeypatch.setattr(rstr_mod, "xeger", always_raise)
+
+
+# A pattern specific enough that the random-ASCII fallback effectively never
+# matches — anchored, long, constrained character set. Used together with
+# `_force_rstr_to_fail` to simulate "truly unsynthesizable" end-to-end.
+_FALLBACK_UNMATCHABLE_PATTERN = r"^[a-f0-9]{64}-specific-unique-anchored-marker-xyz$"
 
 
 class TestFailFast:
-    def test_generation_failure_raises(self):
-        """When rstr can't synthesize and the fallback can't match either,
-        generation fails with GenerationError."""
+    def test_generation_failure_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """When stage 1 produces no base matches and the random-ASCII
+        fallback can't match the pattern either, generation raises
+        GenerationError."""
+        _force_rstr_to_fail(monkeypatch)
         gen = CorpusGenerator(
             samples_per_rule=20,
             min_valid_samples=10,
@@ -125,12 +139,13 @@ class TestFailFast:
             generation_timeout_s=0.5,
             seed=42,
         )
-        rule = _make_rule("unsynth", _UNSYNTHESIZABLE_PATTERN)
+        rule = _make_rule("unsynth", _FALLBACK_UNMATCHABLE_PATTERN)
         with pytest.raises(GenerationError, match=r"only .* valid samples"):
             gen.generate([rule])
 
-    def test_generation_failure_skip(self):
-        """skip_invalid=True turns the generation failure into a silent drop."""
+    def test_generation_failure_skip(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """skip_invalid=True turns the failure into a silent drop."""
+        _force_rstr_to_fail(monkeypatch)
         gen = CorpusGenerator(
             samples_per_rule=20,
             min_valid_samples=10,
@@ -138,7 +153,7 @@ class TestFailFast:
             generation_timeout_s=0.5,
             seed=42,
         )
-        rule = _make_rule("unsynth", _UNSYNTHESIZABLE_PATTERN)
+        rule = _make_rule("unsynth", _FALLBACK_UNMATCHABLE_PATTERN)
         entries = gen.generate([rule], skip_invalid=True)
         assert len(entries) == 0
 
@@ -258,6 +273,68 @@ class TestMutationalAugmentation:
             assert broad.compiled.search(text)
 
 
+class TestRstrRepeatPatch:
+    """The rstr 3.2.x `_handle_repeat` bug: fixed-count `{N}` above
+    STAR_PLUS_LIMIT (100) calls `randint(N, 100)` which raises. We
+    monkeypatch at `crossfire.generator` import. These tests prove the
+    patch is active and works on the real-world trigger
+    (`cloudflare_origin_ca_key` from gitleaks).
+    """
+
+    def test_large_fixed_count_generates(self):
+        """{146} must produce a 146-char string, not raise."""
+        import random
+
+        import rstr
+
+        import crossfire.generator  # noqa: F401  — importing applies the patch
+
+        random.seed(42)
+        s = rstr.xeger(r"[a-f0-9]{146}")
+        assert len(s) == 146
+        assert all(c in "0123456789abcdef" for c in s)
+
+    def test_cloudflare_origin_ca_key_pattern_generates(self):
+        """Real-world gitleaks rule that hit the rstr bug — must synthesize
+        a matching sample end-to-end via CorpusGenerator."""
+        pattern = r"\b(v1\.0-[a-f0-9]{24}-[a-f0-9]{146})(?:[\x60'\"\s;]|\\[nr]|$)"
+        rule = _make_rule("cloudflare", pattern)
+        gen = CorpusGenerator(
+            samples_per_rule=20, min_valid_samples=10, negative_samples=0, seed=42
+        )
+        entries = gen.generate([rule])
+        positives = [e for e in entries if not e.is_negative]
+        assert len(positives) >= 10
+        for e in positives:
+            assert rule.compiled.search(e.text)
+
+    def test_unbounded_quantifier_still_capped(self):
+        """`.*` and `+` should still be bounded (original STAR_PLUS_LIMIT
+        intent) — no runaway string generation."""
+        import random
+
+        import rstr
+
+        import crossfire.generator  # noqa: F401
+
+        random.seed(42)
+        # rstr's STAR_PLUS_LIMIT=100 still applies; generated `.+` strings
+        # shouldn't blow past ~100 chars for a single quantifier.
+        s = rstr.xeger(r"a.+z")
+        assert len(s) <= 200  # liberal bound — STAR_PLUS_LIMIT plus the two literals
+
+    def test_narrow_variable_range_unchanged(self):
+        """`{2,5}` (end_range below STAR_PLUS_LIMIT) must behave as upstream
+        rstr did — no regression in the common path."""
+        import rstr
+
+        import crossfire.generator  # noqa: F401
+
+        for _ in range(20):
+            s = rstr.xeger(r"[a-z]{2,5}")
+            assert 2 <= len(s) <= 5
+
+
 class TestIntermittentRstrFailures:
     """Some patterns make rstr throw on a fraction of calls — the generator
     must not `break` on the first exception, or we lose the useful output
@@ -375,7 +452,10 @@ class TestParallelGeneration:
         assert by_rule1 == by_rule2
 
     def test_parallel_skip_invalid(self):
-        """Parallel path should respect skip_invalid."""
+        """Parallel path should respect skip_invalid. Uses an anchored narrow
+        pattern (1 match, padding can't expand past the anchors) instead of
+        a monkeypatch, because monkeypatches don't propagate across process
+        boundaries."""
         gen = CorpusGenerator(
             samples_per_rule=20,
             min_valid_samples=10,
@@ -383,9 +463,11 @@ class TestParallelGeneration:
             generation_timeout_s=0.5,
             seed=42,
         )
-        # Mix valid rules and one genuinely unsynthesizable rule to exceed threshold of 8
+        # Mix valid rules and one anchored-narrow rule to exceed threshold of 8.
+        # The anchored rule produces exactly one sample; padding breaks anchors
+        # so re-validation rejects augmented candidates; 1 < min_valid_samples.
         rules = [_make_rule(f"ok_{i}", rf"[a-z]{{{i + 3}}}") for i in range(8)]
-        rules.append(_make_rule("impossible", _UNSYNTHESIZABLE_PATTERN))
+        rules.append(_make_rule("impossible", r"^exact-anchored-impossible-literal$"))
         entries = gen.generate(rules, skip_invalid=True)
         sources = {e.source_rule for e in entries}
         assert "impossible" not in sources
