@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any
 
 import click
 
@@ -14,8 +14,6 @@ from crossfire.corpus import DiffReport, EvaluationReport
 from crossfire.errors import CrossfireError, LoadError, ValidationError
 from crossfire.logging import setup_logging
 
-F = TypeVar("F", bound=Callable[..., Any])
-
 # Exit codes
 EXIT_OK = 0
 EXIT_DUPLICATES = 1
@@ -23,7 +21,7 @@ EXIT_INPUT_ERROR = 2
 EXIT_RUNTIME_ERROR = 3
 
 
-def _logging_options(f: F) -> F:
+def _logging_options[F: Callable[..., Any]](f: F) -> F:
     """Shared logging options for all commands."""
     f = click.option(
         "--log-format", default="text", type=click.Choice(["text", "json"]), help="Log format."

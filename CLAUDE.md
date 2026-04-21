@@ -74,7 +74,7 @@ crossfire diff rules.json --corpus-a a.jsonl --corpus-b b.jsonl  # Coverage drif
 
 ## CI Integration
 
-- `.github/workflows/test.yml` — pytest + ruff on push/PR (Python 3.11-3.13)
+- `.github/workflows/test.yml` — pytest + ruff on push/PR (Python 3.12-3.13)
 - `.github/workflows/release.yml` — PyPI publish on tag (trusted publishing)
 - `action.yml` — GitHub Action for users to run crossfire in their CI
 - `.pre-commit-hooks.yaml` — pre-commit hooks (crossfire-scan, crossfire-validate)

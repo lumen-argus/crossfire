@@ -226,7 +226,10 @@ def load_rules(
             skipped += 1
             continue
 
-        # Compile regex (uses RE2 when available for faster matching)
+        # Compile regex. `cre.compile` always validates with stdlib `re` so
+        # downstream workers (which recompile with stdlib) can assume the
+        # pattern is stdlib-safe; RE2 is returned on top of that for faster
+        # matching when available.
         try:
             compiled = cre.compile(pattern)
         except re.error as e:

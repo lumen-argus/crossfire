@@ -5,6 +5,20 @@ All notable changes to Crossfire will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Minimum Python bumped to 3.12** (was 3.11). CI now tests 3.12 and 3.13.
+
+### Fixed
+
+- **`--skip-invalid` now catches stdlib-incompatible patterns at load time, in one place.** The loader compiles via `crossfire.regex` (RE2 when available), which historically accepted patterns that Python's `re` rejects — notably non-leading global flags like `(?i)` mid-pattern in some gitleaks TOMLs. Because `ProcessPoolExecutor` workers recompile patterns with stdlib `re` by design (importing the `crossfire` package in workers adds ~20ms each under spawn), such a rule would load fine, then abort the whole worker pool later with `re.PatternError` — regardless of `--skip-invalid`. `crossfire.regex.compile` now validates every pattern against stdlib `re` before returning the RE2-compiled form, so asymmetric patterns are rejected at load time with the loader's standard `ValidationError` (fail-fast, or WARNING + skip under `--skip-invalid`). Downstream stages (generator, evaluator) can assume stdlib-compatibility for every rule they receive. The per-worker `re.error` handler in `_generate_for_rule_worker` remains as defense-in-depth for library callers who construct `Rule` objects without going through the loader.
+
+### Known issue
+
+- When `google-re2` is installed, a handful of CLI/plugin tests (`test_scan_overlapping`, `test_scan_table_format`, `test_fail_on_duplicate`, `test_output_to_file`, `test_scan_gitleaks_rules`) can fail with "only N valid samples" on broad `\s*`/`\S+` patterns. This is a separate bug: the generator uses `rstr` (stdlib-sre grammar) to synthesize strings but validates them against the loader's RE2-compiled pattern, and RE2's `\s`/`\S` semantics diverge enough from stdlib that most generated strings are rejected. The fix is generator-local (validate with a stdlib-compiled copy during generation, or swap the sampler) and unrelated to the load-time asymmetry above.
+
 ## [0.2.2] - 2026-04-21
 
 ### Fixed

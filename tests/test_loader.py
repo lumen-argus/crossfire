@@ -80,6 +80,56 @@ class TestFailFastValidation:
         assert len(rules) == 1
         assert rules[0].name == "valid"
 
+    def test_stdlib_incompatible_pattern_fails(self, tmp_path: Path):
+        # Non-leading `(?i)` flags: stdlib `re` rejects on 3.11+. Without RE2
+        # the stdlib fallback already caught this; the regression that
+        # prompted the fix was that when RE2 is installed, the loader used
+        # to accept the pattern and the parallel worker then crashed on
+        # stdlib `re.compile`. The companion test below covers that config.
+        data = [{"name": "non_leading_flag", "pattern": r"(?i)foo(?i)bar"}]
+        path = tmp_path / "rules.json"
+        path.write_text(json.dumps(data))
+        with pytest.raises(ValidationError, match="invalid regex"):
+            load_rules(str(path))
+
+    def test_stdlib_incompatible_pattern_with_skip(self, tmp_path: Path):
+        data = [
+            {"name": "non_leading_flag", "pattern": r"(?i)foo(?i)bar"},
+            {"name": "valid", "pattern": "[a-z]+"},
+        ]
+        path = tmp_path / "rules.json"
+        path.write_text(json.dumps(data))
+        rules = load_rules(str(path), skip_invalid=True)
+        assert [r.name for r in rules] == ["valid"]
+
+    @pytest.mark.skipif(
+        not __import__("crossfire.regex", fromlist=["is_re2_available"]).is_re2_available(),
+        reason="RE2 asymmetry is only observable when google-re2 is installed",
+    )
+    def test_re2_accepted_but_stdlib_rejected_fails_load(self, tmp_path: Path):
+        """Regression guard for the original 0.2.2 bug: when google-re2 is
+        installed, the loader must still reject patterns that RE2 accepts but
+        stdlib `re` cannot compile. Without this test, a revert of the
+        stdlib-first validation in `crossfire.regex.compile` would pass the
+        default (no-RE2) test suite.
+        """
+        import re2
+
+        pattern = r"(?i)foo(?i)bar"
+        try:
+            re2.compile(pattern)
+        except Exception as exc:
+            pytest.skip(
+                f"RE2 no longer accepts {pattern!r} ({exc}); regression guard is "
+                f"vacuous — pick a new RE2-accepted / stdlib-rejected pattern."
+            )
+
+        data = [{"name": "re2_only", "pattern": pattern}]
+        path = tmp_path / "rules.json"
+        path.write_text(json.dumps(data))
+        with pytest.raises(ValidationError, match="invalid regex"):
+            load_rules(str(path))
+
     def test_empty_pattern_fails(self, tmp_path: Path):
         data = [{"name": "empty", "pattern": ""}]
         path = tmp_path / "rules.json"
