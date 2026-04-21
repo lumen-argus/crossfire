@@ -5,6 +5,17 @@ All notable changes to Crossfire will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-04-21
+
+### Fixed
+
+- **Subset findings against catch-all rules no longer recommend dropping the specific rule.** When a superset rule is a catch-all (umbrella pattern like `generic_secret`), dropping the specific subset (e.g. `terraform_cloud_token`) loses the downstream label and degrades alert quality in DLP/SIEM pipelines. Classifier now auto-detects catch-alls — a rule overlapping with more than `catch_all_threshold` (default 5) other rules, or one explicitly tagged via `metadata["catch_all"] = True` — and flips the recommendation to `keep_both`. Rules can opt out of auto-detection with `metadata["catch_all"] = False`. ([crossfire-rules#9](https://github.com/lumen-argus/crossfire/issues/9))
+
+### Added
+
+- **`OverlapResult.downstream_label_loss: bool`** — true when acting on the recommendation would drop the more specific rule (i.e. `SUBSET`+`keep_a` or `SUPERSET`+`keep_b`). Surfaced in JSON and CSV output so CI gates can filter findings by actual label-loss risk rather than treating all subset pairs equally.
+- **`Classifier(catch_all_threshold=...)`** constructor parameter (default 5).
+
 ## [0.2.1] - 2026-04-10
 
 ### Fixed

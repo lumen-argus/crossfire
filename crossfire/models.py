@@ -77,6 +77,7 @@ class OverlapResult:
     reason: str = ""
     ci_a_to_b: tuple[float, float] | None = None  # 95% CI for overlap_a_to_b
     ci_b_to_a: tuple[float, float] | None = None  # 95% CI for overlap_b_to_a
+    downstream_label_loss: bool = False  # True if acting on recommendation drops the specific rule
 
 
 @dataclass

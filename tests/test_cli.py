@@ -7,6 +7,7 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
+import crossfire
 from crossfire.cli import main
 
 
@@ -204,7 +205,7 @@ class TestGlobalOptions:
         runner = CliRunner()
         result = runner.invoke(main, ["--version"])
         assert result.exit_code == 0
-        assert "0.1.0" in result.output
+        assert crossfire.__version__ in result.output
 
     def test_log_level(self, sample_rules_path: str):
         runner = CliRunner()

@@ -20,6 +20,7 @@ class Classifier:
         threshold: float = 0.8,
         cluster_threshold: float = 0.6,
         overlap_min: float = 0.2,
+        catch_all_threshold: int = 5,
     ) -> None:
         """Initialize classifier.
 
@@ -27,10 +28,15 @@ class Classifier:
             threshold: Minimum overlap to classify as duplicate/subset (0.0-1.0).
             cluster_threshold: Minimum Jaccard similarity for clustering.
             overlap_min: Minimum overlap to report as 'overlap' (below this = disjoint).
+            catch_all_threshold: A superset rule overlapping with more than this many
+                other rules is treated as a catch-all (recommendation becomes
+                KEEP_BOTH to preserve the specific rule's label). Rules with
+                ``metadata["catch_all"] = True`` are always treated as catch-alls.
         """
         self.threshold = threshold
         self.cluster_threshold = cluster_threshold
         self.overlap_min = overlap_min
+        self.catch_all_threshold = catch_all_threshold
 
     def classify(
         self,
@@ -50,6 +56,7 @@ class Classifier:
         """
         rule_map = {r.name: r for r in rules}
         rule_names = [r.name for r in rules]
+        overlap_counts = _compute_overlap_counts(matrix, rule_names)
         results: list[OverlapResult] = []
 
         # Evaluate all unique pairs
@@ -59,7 +66,9 @@ class Classifier:
                 # Skip pairs with zero overlap in both directions
                 if matches_a.get(name_b, 0) == 0 and matrix.get(name_b, {}).get(name_a, 0) == 0:
                     continue
-                result = self._classify_pair(name_a, name_b, matrix, rule_map, corpus_sizes)
+                result = self._classify_pair(
+                    name_a, name_b, matrix, rule_map, corpus_sizes, overlap_counts
+                )
                 if result:
                     results.append(result)
 
@@ -88,6 +97,7 @@ class Classifier:
         matrix: MatchMatrix,
         rule_map: dict[str, Rule],
         corpus_sizes: dict[str, int],
+        overlap_counts: dict[str, int],
     ) -> OverlapResult | None:
         """Classify the relationship between two rules."""
         size_a = corpus_sizes.get(name_a, 0)
@@ -118,7 +128,9 @@ class Classifier:
             overlap_b_to_a,
             rule_map.get(name_a),
             rule_map.get(name_b),
+            overlap_counts,
         )
+        label_loss = _downstream_label_loss(relationship, recommendation)
 
         # Skip disjoint pairs (not worth reporting)
         if relationship == Relationship.DISJOINT:
@@ -168,6 +180,7 @@ class Classifier:
             reason=reason,
             ci_a_to_b=ci_ab,
             ci_b_to_a=ci_ba,
+            downstream_label_loss=label_loss,
         )
 
     def _determine_relationship(
@@ -178,6 +191,7 @@ class Classifier:
         overlap_b_to_a: float,
         rule_a: Rule | None,
         rule_b: Rule | None,
+        overlap_counts: dict[str, int],
     ) -> tuple[Relationship, Recommendation, str]:
         """Determine relationship type, recommendation, and reason."""
         T = self.threshold
@@ -195,6 +209,12 @@ class Classifier:
                     Recommendation.KEEP_BOTH,
                     f"'{name_b}' has higher priority but is a subset",
                 )
+            if self._is_catch_all(name_a, rule_a, overlap_counts):
+                return (
+                    Relationship.SUBSET,
+                    Recommendation.KEEP_BOTH,
+                    f"'{name_a}' is a catch-all — dropping '{name_b}' would lose its label",
+                )
             return (
                 Relationship.SUBSET,
                 Recommendation.KEEP_A,
@@ -210,6 +230,12 @@ class Classifier:
                     Recommendation.KEEP_BOTH,
                     f"'{name_a}' has higher priority but is a subset",
                 )
+            if self._is_catch_all(name_b, rule_b, overlap_counts):
+                return (
+                    Relationship.SUPERSET,
+                    Recommendation.KEEP_BOTH,
+                    f"'{name_b}' is a catch-all — dropping '{name_a}' would lose its label",
+                )
             return (
                 Relationship.SUPERSET,
                 Recommendation.KEEP_B,
@@ -220,6 +246,25 @@ class Classifier:
             return Relationship.OVERLAP, Recommendation.REVIEW, "Partial overlap — review manually"
 
         return Relationship.DISJOINT, Recommendation.KEEP_BOTH, ""
+
+    def _is_catch_all(
+        self,
+        name: str,
+        rule: Rule | None,
+        overlap_counts: dict[str, int],
+    ) -> bool:
+        """True if a rule is a catch-all (broad umbrella pattern).
+
+        A rule is a catch-all if explicitly tagged via ``metadata["catch_all"]``
+        or if it overlaps with more than ``catch_all_threshold`` other rules.
+        """
+        if rule is not None:
+            flag = rule.metadata.get("catch_all")
+            if flag is True:
+                return True
+            if flag is False:
+                return False
+        return overlap_counts.get(name, 0) > self.catch_all_threshold
 
     def _recommend_keep(
         self,
@@ -306,3 +351,36 @@ class Classifier:
             log.info("Built %d clusters from overlapping rules", len(clusters))
 
         return clusters
+
+
+def _compute_overlap_counts(matrix: MatchMatrix, rule_names: list[str]) -> dict[str, int]:
+    """Count how many other rules each rule's pattern matches at least once.
+
+    Used to detect catch-all rules — a rule that overlaps with many others is
+    treated as an umbrella pattern, which flips subset recommendations from
+    "drop the specific rule" to "keep both".
+    """
+    rule_set = set(rule_names)
+    counts: dict[str, int] = dict.fromkeys(rule_names, 0)
+    for rule_name, matches in matrix.items():
+        if rule_name not in rule_set:
+            continue
+        for other_name, count in matches.items():
+            if other_name != rule_name and count > 0 and other_name in rule_set:
+                counts[rule_name] += 1
+    return counts
+
+
+def _downstream_label_loss(
+    relationship: Relationship,
+    recommendation: Recommendation,
+) -> bool:
+    """True if following the recommendation would drop the specific (subset) rule.
+
+    On a SUBSET pair the subset rule is ``rule_b`` (``rule_a`` is the superset),
+    so KEEP_A drops the specific rule. On a SUPERSET pair the subset rule is
+    ``rule_a``, so KEEP_B drops the specific rule.
+    """
+    if relationship == Relationship.SUBSET and recommendation == Recommendation.KEEP_A:
+        return True
+    return relationship == Relationship.SUPERSET and recommendation == Recommendation.KEEP_B

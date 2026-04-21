@@ -8,13 +8,19 @@ from crossfire.classifier import Classifier
 from crossfire.models import Recommendation, Relationship, Rule
 
 
-def _make_rule(name: str, source: str = "test", priority: int = 0) -> Rule:
+def _make_rule(
+    name: str,
+    source: str = "test",
+    priority: int = 0,
+    metadata: dict[str, object] | None = None,
+) -> Rule:
     return Rule(
         name=name,
         pattern=".",
         compiled=re.compile("."),
         source=source,
         priority=priority,
+        metadata=metadata or {},
     )
 
 
@@ -247,6 +253,172 @@ class TestRecommendation:
         subs = [r for r in results if r.relationship == Relationship.SUBSET]
         assert len(subs) == 1
         assert subs[0].recommendation == Recommendation.KEEP_A  # broad is the superset
+
+
+class TestCatchAllSuperset:
+    """Catch-all superset rules should not trigger 'drop the specific rule'.
+
+    Regression for issue #9: terraform_cloud_token ⊂ generic_secret. Dropping the
+    specific rule would lose the downstream label; both should be kept.
+    """
+
+    def _catch_all_matrix(self) -> tuple[dict[str, dict[str, int]], dict[str, int]]:
+        # 'generic' is a catch-all: matches all of s1..s6's corpora (6 other rules
+        # > default catch_all_threshold=5), but each specific rule only matches
+        # its own corpus.
+        specifics = [f"s{i}" for i in range(1, 7)]
+        matrix: dict[str, dict[str, int]] = {"generic": {"generic": 50}}
+        for s in specifics:
+            matrix["generic"][s] = 48
+            matrix[s] = {"generic": 5, s: 50}
+        sizes = {"generic": 50, **dict.fromkeys(specifics, 50)}
+        return matrix, sizes
+
+    def test_auto_detected_catch_all_keeps_both(self):
+        """Superset that overlaps with many rules → KEEP_BOTH, no label loss."""
+        classifier = Classifier(threshold=0.8)
+        rules = [_make_rule("generic")] + [_make_rule(f"s{i}") for i in range(1, 7)]
+        matrix, sizes = self._catch_all_matrix()
+
+        results, _ = classifier.classify(matrix, rules, sizes)
+        subsets = [r for r in results if r.relationship == Relationship.SUBSET]
+        assert subsets, "expected subset findings against the catch-all"
+        for r in subsets:
+            assert r.rule_a == "generic"
+            assert r.recommendation == Recommendation.KEEP_BOTH
+            assert "catch-all" in r.reason
+            assert r.downstream_label_loss is False
+
+    def test_explicit_metadata_flag_keeps_both(self):
+        """metadata.catch_all=True forces KEEP_BOTH even with few overlaps."""
+        classifier = Classifier(threshold=0.8)
+        rules = [
+            _make_rule("generic", metadata={"catch_all": True}),
+            _make_rule("specific"),
+        ]
+        matrix = {
+            "generic": {"generic": 50, "specific": 48},
+            "specific": {"generic": 10, "specific": 50},
+        }
+        sizes = {"generic": 50, "specific": 50}
+
+        results, _ = classifier.classify(matrix, rules, sizes)
+        subsets = [r for r in results if r.relationship == Relationship.SUBSET]
+        assert len(subsets) == 1
+        assert subsets[0].recommendation == Recommendation.KEEP_BOTH
+        assert "catch-all" in subsets[0].reason
+        assert subsets[0].downstream_label_loss is False
+
+    def test_explicit_false_disables_auto_detection(self):
+        """metadata.catch_all=False suppresses auto-detection (opt-out)."""
+        classifier = Classifier(threshold=0.8)
+        # Same matrix as auto-detection case, but the catch-all rule opts out.
+        specifics = [f"s{i}" for i in range(1, 7)]
+        rules = [_make_rule("generic", metadata={"catch_all": False})] + [
+            _make_rule(s) for s in specifics
+        ]
+        matrix, sizes = self._catch_all_matrix()
+
+        results, _ = classifier.classify(matrix, rules, sizes)
+        subsets = [r for r in results if r.relationship == Relationship.SUBSET]
+        assert subsets
+        for r in subsets:
+            assert r.recommendation == Recommendation.KEEP_A
+            assert r.downstream_label_loss is True
+
+    def test_superset_relationship_also_handled(self):
+        """Catch-all on the B side of a SUPERSET pair also keeps both."""
+        classifier = Classifier(threshold=0.8)
+        # 'specific' is rule_a, 'generic' is rule_b → SUPERSET.
+        rules = [
+            _make_rule("specific"),
+            _make_rule("generic", metadata={"catch_all": True}),
+        ]
+        matrix = {
+            "specific": {"specific": 50, "generic": 10},
+            "generic": {"specific": 48, "generic": 50},
+        }
+        sizes = {"specific": 50, "generic": 50}
+
+        results, _ = classifier.classify(matrix, rules, sizes)
+        sups = [r for r in results if r.relationship == Relationship.SUPERSET]
+        assert len(sups) == 1
+        assert sups[0].recommendation == Recommendation.KEEP_BOTH
+        assert sups[0].downstream_label_loss is False
+
+    def test_superset_explicit_false_disables_auto_detection(self):
+        """metadata.catch_all=False on the B side of a SUPERSET pair opts out too."""
+        classifier = Classifier(threshold=0.8)
+        # 'generic' has enough overlaps to auto-trigger, but opts out via metadata.
+        # Put it second so it lands on the B side of a SUPERSET pair.
+        specifics = [f"s{i}" for i in range(1, 7)]
+        rules = (
+            [_make_rule(specifics[0])]
+            + [_make_rule("generic", metadata={"catch_all": False})]
+            + [_make_rule(s) for s in specifics[1:]]
+        )
+        matrix: dict[str, dict[str, int]] = {"generic": {"generic": 50}}
+        for s in specifics:
+            matrix["generic"][s] = 48
+            matrix[s] = {"generic": 5, s: 50}
+        sizes = {"generic": 50, **dict.fromkeys(specifics, 50)}
+
+        results, _ = classifier.classify(matrix, rules, sizes)
+        # The (s1, generic) pair is SUPERSET (generic is broader, rule_b).
+        pair = next(r for r in results if {r.rule_a, r.rule_b} == {"s1", "generic"})
+        assert pair.relationship == Relationship.SUPERSET
+        assert pair.recommendation == Recommendation.KEEP_B
+        assert pair.downstream_label_loss is True
+
+
+class TestDownstreamLabelLoss:
+    """Verify label-loss flag on all recommendation paths."""
+
+    def test_subset_keep_a_loses_label(self):
+        classifier = Classifier(threshold=0.8)
+        rules = [_make_rule("broad"), _make_rule("specific")]
+        matrix = {
+            "broad": {"broad": 50, "specific": 48},
+            "specific": {"broad": 10, "specific": 50},
+        }
+        sizes = {"broad": 50, "specific": 50}
+        results, _ = classifier.classify(matrix, rules, sizes)
+        assert results[0].relationship == Relationship.SUBSET
+        assert results[0].recommendation == Recommendation.KEEP_A
+        assert results[0].downstream_label_loss is True
+
+    def test_subset_keep_both_preserves_label(self):
+        """Priority override on subset → KEEP_BOTH → no label loss."""
+        classifier = Classifier(threshold=0.8)
+        rules = [_make_rule("broad", priority=1), _make_rule("specific", priority=10)]
+        matrix = {
+            "broad": {"broad": 50, "specific": 48},
+            "specific": {"broad": 10, "specific": 50},
+        }
+        sizes = {"broad": 50, "specific": 50}
+        results, _ = classifier.classify(matrix, rules, sizes)
+        assert results[0].recommendation == Recommendation.KEEP_BOTH
+        assert results[0].downstream_label_loss is False
+
+    def test_duplicate_does_not_flag_label_loss(self):
+        """Duplicates aren't a specific-vs-general tradeoff — no label loss flag."""
+        classifier = Classifier(threshold=0.8)
+        rules = [_make_rule("a", priority=10), _make_rule("b", priority=5)]
+        matrix = {"a": {"a": 50, "b": 45}, "b": {"a": 42, "b": 50}}
+        sizes = {"a": 50, "b": 50}
+        results, _ = classifier.classify(matrix, rules, sizes)
+        assert results[0].relationship == Relationship.DUPLICATE
+        assert results[0].recommendation == Recommendation.KEEP_A
+        assert results[0].downstream_label_loss is False
+
+    def test_overlap_does_not_flag_label_loss(self):
+        classifier = Classifier(threshold=0.8, overlap_min=0.2)
+        rules = [_make_rule("a"), _make_rule("b")]
+        matrix = {"a": {"a": 50, "b": 20}, "b": {"a": 15, "b": 50}}
+        sizes = {"a": 50, "b": 50}
+        results, _ = classifier.classify(matrix, rules, sizes)
+        assert results[0].relationship == Relationship.OVERLAP
+        assert results[0].downstream_label_loss is False
 
 
 class TestEmptyInputs:
