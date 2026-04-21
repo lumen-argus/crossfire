@@ -106,31 +106,219 @@ class TestMultipleRules:
             assert len(positive) >= 10
 
 
+# A pattern where rstr.xeger reliably raises (ValueError: empty range in
+# randint) — the quantifier on the second `[a-f0-9]` range creates a length
+# rstr's sampler can't satisfy. Used by tests that need "genuinely
+# unsynthesizable" behavior. Same shape as the real `cloudflare_origin_ca_key`
+# gitleaks rule that motivated this test strategy.
+_UNSYNTHESIZABLE_PATTERN = r"\b(v1\.0-[a-f0-9]{24}-[a-f0-9]{146})(?:[\x60'\"\s;]|\\[nr]|$)"
+
+
 class TestFailFast:
     def test_generation_failure_raises(self):
+        """When rstr can't synthesize and the fallback can't match either,
+        generation fails with GenerationError."""
         gen = CorpusGenerator(
-            samples_per_rule=50,
-            min_valid_samples=50,  # impossible for simple pattern
+            samples_per_rule=20,
+            min_valid_samples=10,
             negative_samples=0,
             generation_timeout_s=0.5,
             seed=42,
         )
-        # Pattern that generates only 1 unique string
-        rule = _make_rule("single", r"^exact_match_only$")
+        rule = _make_rule("unsynth", _UNSYNTHESIZABLE_PATTERN)
         with pytest.raises(GenerationError, match=r"only .* valid samples"):
             gen.generate([rule])
 
     def test_generation_failure_skip(self):
+        """skip_invalid=True turns the generation failure into a silent drop."""
         gen = CorpusGenerator(
-            samples_per_rule=50,
-            min_valid_samples=50,
+            samples_per_rule=20,
+            min_valid_samples=10,
             negative_samples=0,
             generation_timeout_s=0.5,
             seed=42,
         )
-        rule = _make_rule("single", r"^exact_match_only$")
+        rule = _make_rule("unsynth", _UNSYNTHESIZABLE_PATTERN)
         entries = gen.generate([rule], skip_invalid=True)
         assert len(entries) == 0
+
+
+class TestMutationalAugmentation:
+    """Stage 2 of the corpus pipeline: pad minimal rstr matches with random
+    context and re-validate. Real corpora contain the pattern embedded in
+    surrounding text (mutational fuzzing style), so a literal-heavy but
+    unanchored rule should still produce the full `samples_per_rule`.
+
+    Motivated by lumen-argus community.json rules (`ssh_private_key`,
+    `private_key_pem`, `inst_tag`) producing only 1-5 samples on 0.2.5
+    because rstr deduplicated to the minimal match language.
+    """
+
+    def test_unanchored_literal_gets_full_sample_count_via_padding(self):
+        """A literal pattern with no anchors should produce samples_per_rule
+        variants by padding the base match with random context."""
+        gen = CorpusGenerator(
+            samples_per_rule=30,
+            min_valid_samples=10,
+            negative_samples=0,
+            seed=42,
+        )
+        base = "-----BEGIN OPENSSH PRIVATE KEY-----"
+        rule = _make_rule("literal", base)
+        entries = gen.generate([rule])
+        positives = [e for e in entries if not e.is_negative]
+        assert len(positives) == 30, f"expected 30 padded variants, got {len(positives)}"
+        # Every sample contains the literal and still validates.
+        for e in positives:
+            assert base in e.text
+            assert rule.compiled.search(e.text)
+        # And meaningful diversity — at least half should be unique padded forms.
+        assert len({e.text for e in positives}) >= 15
+
+    def test_short_alternation_expands_via_padding(self):
+        """A 5-alternative pattern produces 5 base matches; padding expands
+        each into many context-varied samples."""
+        gen = CorpusGenerator(
+            samples_per_rule=30,
+            min_valid_samples=10,
+            negative_samples=0,
+            seed=42,
+        )
+        pattern = r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"
+        rule = _make_rule("alt", pattern)
+        entries = gen.generate([rule])
+        positives = [e for e in entries if not e.is_negative]
+        assert len(positives) == 30
+        for e in positives:
+            assert re.search(pattern, e.text)
+
+    def test_case_insensitive_literal_expands_via_padding(self):
+        """`(?i)\\[INST\\]` — padding introduces variety even though the
+        pattern's core match language is just case permutations of [INST]."""
+        gen = CorpusGenerator(
+            samples_per_rule=30,
+            min_valid_samples=10,
+            negative_samples=0,
+            seed=42,
+        )
+        rule = _make_rule("inst", r"(?i)\[INST\]")
+        entries = gen.generate([rule])
+        positives = [e for e in entries if not e.is_negative]
+        assert len(positives) == 30
+        for e in positives:
+            assert re.search(r"(?i)\[INST\]", e.text)
+
+    def test_fully_anchored_pattern_stays_at_minimal_set(self):
+        """`^literal$` cannot be padded — padding would push the match past
+        the anchors and re-validation would fail. The generator legitimately
+        yields only the single possible match; with `min_valid_samples=10`
+        above that, generation fails hard, and that's correct behavior."""
+        gen = CorpusGenerator(
+            samples_per_rule=30,
+            min_valid_samples=10,
+            negative_samples=0,
+            seed=42,
+        )
+        rule = _make_rule("anchored", r"^exact-anchored-literal$")
+        with pytest.raises(GenerationError, match=r"only 1 valid samples"):
+            gen.generate([rule])
+
+    def test_fully_anchored_narrow_skipped_with_skip_invalid(self):
+        """Same rule, but skip_invalid=True turns the GenerationError into a
+        silent drop — the downstream analysis keeps going on the remaining
+        rules."""
+        gen = CorpusGenerator(
+            samples_per_rule=30,
+            min_valid_samples=10,
+            negative_samples=0,
+            seed=42,
+        )
+        rule = _make_rule("anchored", r"^exact-anchored-literal$")
+        entries = gen.generate([rule], skip_invalid=True)
+        assert entries == []
+
+    def test_padded_samples_feed_downstream_overlap_detection(self):
+        """A narrow rule's padded samples should still enable overlap
+        detection — the padded strings are valid matches of the rule, so
+        any broader rule that also matches them will be picked up."""
+        gen = CorpusGenerator(
+            samples_per_rule=20,
+            min_valid_samples=10,
+            negative_samples=0,
+            seed=42,
+        )
+        narrow = _make_rule("narrow", r"unique-marker-xyz-123")
+        broad = _make_rule("broad_contains_marker", r"unique-marker-\w+")
+        entries = gen.generate([narrow, broad])
+        narrow_samples = [e.text for e in entries if e.source_rule == "narrow"]
+        assert len(narrow_samples) == 20
+        # Every narrow sample must also be matched by the broader rule —
+        # that's how overlap analysis would detect the relationship.
+        for text in narrow_samples:
+            assert broad.compiled.search(text)
+
+
+class TestIntermittentRstrFailures:
+    """Some patterns make rstr throw on a fraction of calls — the generator
+    must not `break` on the first exception, or we lose the useful output
+    from the calls that would have succeeded.
+
+    Motivated by the `atlassian_api_token` rule (42/90 rstr exceptions,
+    but 48/90 successful matches when we kept trying).
+    """
+
+    def test_exception_on_some_attempts_does_not_stop_generation(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Simulate rstr raising every other call; generator must keep going."""
+        import rstr as rstr_mod
+
+        call_count = {"n": 0}
+        real_xeger = rstr_mod.xeger
+
+        def flaky_xeger(pattern: str) -> str:
+            call_count["n"] += 1
+            if call_count["n"] % 2 == 0:
+                raise ValueError("simulated intermittent rstr failure")
+            return real_xeger(pattern)
+
+        monkeypatch.setattr(rstr_mod, "xeger", flaky_xeger)
+
+        gen = CorpusGenerator(
+            samples_per_rule=20,
+            min_valid_samples=10,
+            negative_samples=0,
+            seed=42,
+        )
+        rule = _make_rule("flaky", r"[a-z]{10}")
+        entries = gen.generate([rule])
+        positives = [e for e in entries if not e.is_negative]
+        # With half of attempts raising, we should still get plenty of samples.
+        assert len(positives) >= 10
+
+    def test_all_exceptions_falls_back_to_random_generation(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When rstr raises every time, the fallback generator must kick in
+        and (for patterns that random ASCII can match) produce samples."""
+        import rstr as rstr_mod
+
+        def always_raise(pattern: str) -> str:
+            raise ValueError("simulated total rstr failure")
+
+        monkeypatch.setattr(rstr_mod, "xeger", always_raise)
+
+        gen = CorpusGenerator(
+            samples_per_rule=20,
+            min_valid_samples=5,
+            negative_samples=0,
+            seed=42,
+        )
+        # Random ASCII can match `[a-z]+` easily.
+        rule = _make_rule("random_matchable", r"[a-z]+")
+        entries = gen.generate([rule])
+        positives = [e for e in entries if not e.is_negative]
+        assert len(positives) >= 5
 
 
 class TestReproducibility:
@@ -189,15 +377,15 @@ class TestParallelGeneration:
     def test_parallel_skip_invalid(self):
         """Parallel path should respect skip_invalid."""
         gen = CorpusGenerator(
-            samples_per_rule=50,
-            min_valid_samples=50,
+            samples_per_rule=20,
+            min_valid_samples=10,
             negative_samples=0,
             generation_timeout_s=0.5,
             seed=42,
         )
-        # Mix valid and impossible rules to exceed threshold of 8
+        # Mix valid rules and one genuinely unsynthesizable rule to exceed threshold of 8
         rules = [_make_rule(f"ok_{i}", rf"[a-z]{{{i + 3}}}") for i in range(8)]
-        rules.append(_make_rule("impossible", r"^exact_single_match$"))
+        rules.append(_make_rule("impossible", _UNSYNTHESIZABLE_PATTERN))
         entries = gen.generate(rules, skip_invalid=True)
         sources = {e.source_rule for e in entries}
         assert "impossible" not in sources

@@ -104,9 +104,27 @@ def _generate_for_rule_worker(
 class CorpusGenerator:
     """Generates synthetic test strings from regex patterns.
 
-    Uses rstr as the primary generator with a manual fallback for patterns
-    that rstr cannot handle. All generated strings are validated against
-    the source rule's compiled regex before inclusion.
+    Pipeline (each stage runs only when the previous didn't reach
+    `samples_per_rule`):
+
+    1. `rstr.xeger` produces minimal matches from the pattern's AST — fast
+       and precise when the pattern has inherent variability.
+    2. Mutational augmentation pads every base match with random context
+       and re-validates, AFL/libFuzzer style. This is what fills the corpus
+       for literal-heavy but unanchored rules (e.g. `-----BEGIN OPENSSH
+       PRIVATE KEY-----`) to the full `samples_per_rule`.
+    3. Random-ASCII fallback as a last resort for patterns rstr can't parse
+       at all; only productive on patterns broad enough that random strings
+       happen to match.
+
+    All samples are validated with stdlib `re` (the grammar rstr builds on),
+    even when `rule.compiled` is an RE2 pattern. Patterns that are both
+    fully-anchored (`^...$`, `\\A...\\Z`) AND have a small match language
+    (e.g. `^literal$`) can't be augmented past their intrinsic minimum —
+    padding breaks the anchors so re-validation rejects candidates — and
+    will raise `GenerationError` unless the caller opts into `skip_invalid`.
+    Fully-anchored patterns with large match spaces (e.g. `^[a-z]{5}$`)
+    reach `samples_per_rule` from stage 1 alone.
     """
 
     def __init__(
@@ -364,15 +382,86 @@ class CorpusGenerator:
         )
         return entries
 
+    # Corpus generation is a three-stage pipeline, each stage invoked only
+    # when the previous one didn't reach `samples_per_rule`:
+    #
+    #   1. `rstr.xeger`  — derivation-based sampling from the pattern's AST.
+    #                      Fast and precise for patterns with inherent
+    #                      variability (charclasses, quantifiers, alternation).
+    #                      For literal-heavy patterns it produces the same 1-5
+    #                      strings repeatedly, since the match language itself
+    #                      is small. Can also throw on features its parser
+    #                      doesn't model (some escape/quantifier combinations).
+    #
+    #   2. Mutational augmentation — for every base match stage 1 produced,
+    #                      wrap it in random context and re-validate. This
+    #                      is the standard corpus-fuzzing move (AFL/libFuzzer
+    #                      style): real-world strings matching a pattern
+    #                      contain the match embedded in surrounding text, so
+    #                      padding + re-validation generates realistic corpora
+    #                      for literal-heavy but unanchored rules. When stage
+    #                      1 already produced a diverse set (the pattern has
+    #                      plenty of inherent variability), this stage is a
+    #                      no-op. When the pattern is both fully-anchored and
+    #                      narrow, padding breaks the anchor and candidates
+    #                      fail re-validation — the set stays minimal and the
+    #                      caller gets a GenerationError.
+    #
+    #   3. Random fallback — for patterns rstr couldn't parse at all and
+    #                      that aren't anchored. Blind random ASCII; only
+    #                      productive when the pattern is broad enough that
+    #                      random strings happen to match.
+    _RSTR_ATTEMPT_MULTIPLIER = 3
+    _PAD_ATTEMPT_MULTIPLIER = 20
+    _PAD_MAX_SIDE_LENGTH = 24
+    _PAD_CHARSET = string.ascii_letters + string.digits + string.punctuation + " "
+
     def _generate_positive(self, rule: Rule, validator: re.Pattern[str]) -> list[str]:
-        """Generate matching strings for a rule using rstr with fallback."""
-        # Attempt count: generate more than needed to account for validation failures
-        attempt_count = self.samples_per_rule * 3
+        """Generate matching strings for a rule via rstr → padding → fallback."""
         strings: set[str] = set()
         deadline = time.monotonic() + self.generation_timeout_s
 
-        # Strategy 1: rstr.xeger
-        rstr_ok = True
+        rstr_attempts, rstr_matches = self._sample_via_rstr(rule, validator, strings, deadline)
+
+        if len(strings) < self.samples_per_rule and strings:
+            # Stage 2: mutational augmentation. Productive whenever rstr
+            # produced any base matches — padding an anchored pattern just
+            # won't produce new samples, the loop exits at its attempt cap.
+            self._augment_with_padding(strings, validator, deadline)
+
+        if len(strings) < self.min_valid_samples and rstr_attempts == 0:
+            # Stage 3: rstr couldn't parse the pattern at all and stage 2
+            # had nothing to augment. Random ASCII is a coarse last resort.
+            log.info(
+                "Rule '%s': rstr.xeger failed on all attempts, using random fallback",
+                rule.name,
+            )
+            self._fallback_generate(rule, strings, deadline, validator)
+
+        if rstr_attempts:
+            match_rate = rstr_matches / rstr_attempts
+            log.debug(
+                "Rule '%s': rstr match rate %.0f%% (%d/%d), final corpus %d",
+                rule.name,
+                match_rate * 100,
+                rstr_matches,
+                rstr_attempts,
+                len(strings),
+            )
+
+        return list(strings)
+
+    def _sample_via_rstr(
+        self,
+        rule: Rule,
+        validator: re.Pattern[str],
+        strings: set[str],
+        deadline: float,
+    ) -> tuple[int, int]:
+        """Stage 1: derivation-based sampling. Returns (non-raising attempts, matches)."""
+        attempt_count = self.samples_per_rule * self._RSTR_ATTEMPT_MULTIPLIER
+        attempts = 0
+        matches = 0
         for _ in range(attempt_count):
             if time.monotonic() > deadline:
                 break
@@ -380,22 +469,41 @@ class CorpusGenerator:
                 break
             try:
                 s = rstr.xeger(rule.pattern)
-                if len(s) <= self.max_string_length and validator.search(s):
-                    strings.add(s)
             except Exception:
-                rstr_ok = False
+                # Some patterns make rstr throw intermittently (complex
+                # character classes, unusual escapes). Keep trying — a
+                # pattern may fail 40% of calls and succeed on 60%, still
+                # giving plenty of useful output.
+                continue
+            attempts += 1
+            if len(s) <= self.max_string_length and validator.search(s):
+                matches += 1
+                strings.add(s)
+        return attempts, matches
+
+    def _augment_with_padding(
+        self,
+        strings: set[str],
+        validator: re.Pattern[str],
+        deadline: float,
+    ) -> None:
+        """Stage 2: mutational augmentation — pad each base match with random
+        context and keep the re-validated variants."""
+        bases = list(strings)
+        attempt_budget = self.samples_per_rule * self._PAD_ATTEMPT_MULTIPLIER
+        for _ in range(attempt_budget):
+            if time.monotonic() > deadline:
                 break
-
-        if not rstr_ok or len(strings) < self.min_valid_samples:
-            if not rstr_ok:
-                log.info(
-                    "Rule '%s': rstr.xeger failed, using fallback generator",
-                    rule.name,
-                )
-            # Strategy 2: fallback generator
-            self._fallback_generate(rule, strings, deadline, validator)
-
-        return list(strings)
+            if len(strings) >= self.samples_per_rule:
+                break
+            base = random.choice(bases)
+            prefix_len = random.randint(0, self._PAD_MAX_SIDE_LENGTH)
+            suffix_len = random.randint(0, self._PAD_MAX_SIDE_LENGTH)
+            prefix = "".join(random.choices(self._PAD_CHARSET, k=prefix_len))
+            suffix = "".join(random.choices(self._PAD_CHARSET, k=suffix_len))
+            candidate = prefix + base + suffix
+            if len(candidate) <= self.max_string_length and validator.search(candidate):
+                strings.add(candidate)
 
     def _fallback_generate(
         self,
