@@ -14,9 +14,47 @@ from concurrent.futures import Future, ProcessPoolExecutor, as_completed
 from typing import Any
 
 import rstr
+from rstr.xeger import STAR_PLUS_LIMIT as _RSTR_STAR_PLUS_LIMIT
+from rstr.xeger import Xeger as _RstrXeger
 
 from crossfire.errors import GenerationError
 from crossfire.models import CorpusEntry, Rule
+
+
+def _patched_handle_repeat(self: Any, start_range: int, end_range: int, value: str) -> str:
+    """Patched version of `rstr.xeger.Xeger._handle_repeat`.
+
+    Upstream rstr (3.2.x) caps the repeat count unconditionally:
+
+        end_range = min((end_range, STAR_PLUS_LIMIT))
+
+    `STAR_PLUS_LIMIT = 100` is meant to bound *unbounded* quantifiers
+    (`*`, `+`, huge `{N,M}` ranges) so synthetic strings don't blow up.
+    The cap is applied to fixed-count repetitions too: for `{146}`,
+    sre_parse passes `start=146, end=146`; rstr computes `min(146, 100)
+    = 100` and then calls `random.randint(146, 100)`, which raises
+    `ValueError: empty range in randint(146, 100)` because start > end.
+    The real-world gitleaks rule `cloudflare_origin_ca_key` hits this.
+
+    Fix: only cap `end_range` when the cap still leaves
+    `end_range >= start_range`. Preserves the original intent for
+    `*`/`+`/large ranges while allowing fixed-count repetitions above
+    the cap to produce their exact count. Tracked upstream as a rstr
+    bug; remove this patch once a fixed release is out and our floor
+    bumps past it.
+    """
+    if end_range > _RSTR_STAR_PLUS_LIMIT:
+        end_range = max(_RSTR_STAR_PLUS_LIMIT, start_range)
+    times = self._random.randint(start_range, end_range)
+    # Outer `_` because the inner generator's `i` shadows it; `i` there
+    # iterates over the repeat operand's AST nodes, matching upstream rstr.
+    result = ["".join(self._handle_state(i) for i in value) for _ in range(times)]
+    return "".join(result)
+
+
+# setattr (not direct assignment) avoids mypy's method-assign error
+# without an ignore that warn_unused_ignores flips on newer Python versions.
+setattr(_RstrXeger, "_handle_repeat", _patched_handle_repeat)  # noqa: B010
 
 # We default to "spawn" rather than "fork" because forking from a multi-threaded
 # parent process is unsafe: child processes inherit memory but only the calling

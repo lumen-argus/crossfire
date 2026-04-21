@@ -7,7 +7,7 @@ include = ["crossfire*"]
 
 [project]
 name = "crossfire-rules"
-version = "0.2.6"
+version = "0.2.7"
 description = "Regex rule overlap analyzer for DLP, secret scanning, SAST, and IDS tools"
 readme = "README.md"
 license = "MIT"
@@ -95,7 +95,7 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
-module = ["sre_parse", "re._parser", "rstr", "yaml", "re2"]
+module = ["sre_parse", "re._parser", "rstr", "rstr.xeger", "yaml", "re2"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
