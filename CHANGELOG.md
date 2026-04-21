@@ -5,6 +5,12 @@ All notable changes to Crossfire will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2026-04-21
+
+### Fixed
+
+- **`crossfire.__version__` and `crossfire --version` now report the real installed version.** In 0.2.3 the distribution metadata was `0.2.3` but `crossfire/__init__.py` still hardcoded `__version__ = "0.2.2"`, so `crossfire --version` and the `AnalysisReport.crossfire_version` field reported the stale string. Source: `crossfire/__init__.py` now resolves `__version__` via `importlib.metadata.version("crossfire-rules")`, making `pyproject.toml` the single source of truth and eliminating this class of drift. Added a regression test (`tests/test_version.py`) asserting `__version__` equals the distribution metadata at runtime. Cosmetic in 0.2.3 — no functional behavior changed.
+
 ## [0.2.3] - 2026-04-21
 
 ### Changed
