@@ -5,6 +5,16 @@ All notable changes to Crossfire will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.9] - 2026-04-22
+
+### Added
+
+- **Sample diversity warning.** The generator already raises on *count* failures (fewer than `min_valid_samples` survived) but was silent when rstr produced many copies of a single degenerate shape — the exact failure mode behind the 0.2.7 `kubernetes_secret_yaml` report (27 samples / ~10 unique middles, all sharing one core). `CorpusGenerator.generate` now runs a parent-side pass after corpus collection: for each rule, it computes the number of unique middle-50-char slices across the positive samples and logs a WARNING when the ratio falls below `0.4` (minimum 10 samples, otherwise the ratio is noise). Middle slices specifically — stage-2 padding fans random bytes onto both ends of every base match, so prefix/suffix-based uniqueness looks high even when every sample derives from a single degenerate base. Runs parent-side so warnings fire under both sequential and parallel backends (spawn workers don't forward logs). Callers who only want the metric (not the warning) can filter the `crossfire.generator` logger at their end. On the lumen-argus 90-rule community corpus, 0.2.9 fires zero diversity warnings — 0.2.8's non-greedy fix already landed the real behavior fix; this pass is the caller-visible surface so future silent regressions get caught immediately. Threshold chosen empirically: catches the pre-0.2.8 `kubernetes_secret_yaml` regression (0.37) while leaving inherently narrow patterns like `inst_tag` (16/30 = 0.53) above the line. Regression coverage: `tests/test_generator.py::TestDiversityMetric`.
+
+### Changed
+
+- **CI lint now runs under every supported Python version.** The lint job was pinned to 3.12; mypy's output depends on the running interpreter's stubs and stdlib, so a "fine on 3.12" result was no guarantee on 3.13 or 3.14 — stale `# type: ignore` pragmas would silently pass CI and surface only when a contributor upgraded Python locally (which is what happened on 0.2.8 with the rstr `_handle_state` method-assign check). The `lint` job now runs the same Ruff + mypy strict pass under matrix `["3.12", "3.13", "3.14"]`. Test matrix also extended to 3.14. Pyproject classifiers updated to declare 3.14 support — local has been clean on 3.14 for several releases, just hadn't been formally declared.
+
 ## [0.2.8] - 2026-04-21
 
 ### Fixed

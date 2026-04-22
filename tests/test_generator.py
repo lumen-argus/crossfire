@@ -425,6 +425,153 @@ class TestNonGreedyRepeat:
         )
 
 
+class TestDiversityMetric:
+    """The generator raises on *count* failures (fewer than `min_valid_samples`
+    survived) but is otherwise silent when rstr produces many copies of a
+    single degenerate shape — the `kubernetes_secret_yaml` 0.2.7 failure mode.
+    `_warn_on_low_diversity` runs parent-side after corpus collection and
+    surfaces shape failures as WARNING without changing control flow.
+    """
+
+    def test_low_diversity_emits_warning(self, caplog):
+        """Synthetic corpus of identical middles must trigger the warning."""
+        from crossfire.generator import _diversity_ratio
+        from crossfire.models import CorpusEntry
+
+        gen = CorpusGenerator(samples_per_rule=30, min_valid_samples=10)
+
+        base = "X" * 80
+        entries = [
+            CorpusEntry(text=f"prefix{i}_{base}_suffix{i}", source_rule="degen", is_negative=False)
+            for i in range(20)
+        ]
+        ratio, unique = _diversity_ratio([e.text for e in entries], 50)
+        assert unique == 1
+        assert ratio < 0.1
+
+        with caplog.at_level("WARNING", logger="crossfire.generator"):
+            gen._warn_on_low_diversity(entries)
+
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert any("low sample diversity" in r.getMessage() for r in warnings)
+        assert any("'degen'" in r.getMessage() for r in warnings)
+
+    def test_high_diversity_stays_quiet(self, caplog):
+        """Distinct middles must not fire the warning."""
+        from crossfire.models import CorpusEntry
+
+        gen = CorpusGenerator(samples_per_rule=30, min_valid_samples=10)
+        entries = [
+            CorpusEntry(
+                text=f"{'X' * 30}_unique_content_{i:04d}_{'Y' * 30}",
+                source_rule="diverse",
+                is_negative=False,
+            )
+            for i in range(20)
+        ]
+
+        with caplog.at_level("WARNING", logger="crossfire.generator"):
+            gen._warn_on_low_diversity(entries)
+
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert not any("low sample diversity" in r.getMessage() for r in warnings)
+
+    def test_small_sample_set_skips_check(self, caplog):
+        """Below _DIVERSITY_MIN_SAMPLES the ratio isn't meaningful — skip."""
+        from crossfire.models import CorpusEntry
+
+        gen = CorpusGenerator(samples_per_rule=30, min_valid_samples=10)
+        entries = [
+            CorpusEntry(text="same_middle_exactly", source_rule="tiny", is_negative=False)
+            for _ in range(5)
+        ]
+
+        with caplog.at_level("WARNING", logger="crossfire.generator"):
+            gen._warn_on_low_diversity(entries)
+
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert not any("low sample diversity" in r.getMessage() for r in warnings)
+
+    def test_negative_samples_ignored(self, caplog):
+        """Diversity is about positive corpus quality; negatives aren't counted."""
+        from crossfire.models import CorpusEntry
+
+        gen = CorpusGenerator(samples_per_rule=30, min_valid_samples=10)
+        # Many identical negatives + one positive — must not fire (positives below min).
+        entries = [
+            CorpusEntry(text="identical_neg", source_rule="r", is_negative=True) for _ in range(50)
+        ]
+        entries.append(CorpusEntry(text="lone_positive", source_rule="r", is_negative=False))
+
+        with caplog.at_level("WARNING", logger="crossfire.generator"):
+            gen._warn_on_low_diversity(entries)
+
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert not any("low sample diversity" in r.getMessage() for r in warnings)
+
+    def test_per_rule_independent(self, caplog):
+        """Each rule's diversity is computed independently."""
+        from crossfire.models import CorpusEntry
+
+        gen = CorpusGenerator(samples_per_rule=30, min_valid_samples=10)
+        entries = []
+        # Rule A: degenerate (all identical middles)
+        entries.extend(
+            CorpusEntry(text=f"p{i}_" + "Z" * 80 + f"_s{i}", source_rule="ruleA", is_negative=False)
+            for i in range(15)
+        )
+        # Rule B: diverse (unique middles)
+        entries.extend(
+            CorpusEntry(
+                text=f"{'X' * 30}_unique_{i:04d}_{'Y' * 30}",
+                source_rule="ruleB",
+                is_negative=False,
+            )
+            for i in range(15)
+        )
+
+        with caplog.at_level("WARNING", logger="crossfire.generator"):
+            gen._warn_on_low_diversity(entries)
+
+        warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+        assert any("'ruleA'" in w and "low sample diversity" in w for w in warnings)
+        assert not any("'ruleB'" in w and "low sample diversity" in w for w in warnings)
+
+    def test_generate_invokes_diversity_check(self, monkeypatch):
+        """Wiring check: generate() must call _warn_on_low_diversity on the
+        collected corpus. Runs parent-side so the warning fires regardless of
+        parallel/sequential backend (spawn workers don't forward logs).
+        """
+        rule = _make_rule("a", r"[a-z]{5,10}")
+        gen = CorpusGenerator(samples_per_rule=10, min_valid_samples=5, negative_samples=0)
+
+        seen: list[list] = []
+        monkeypatch.setattr(
+            type(gen), "_warn_on_low_diversity", lambda self, entries: seen.append(entries)
+        )
+
+        entries = gen.generate([rule], parallel=False)
+        assert len(seen) == 1
+        assert seen[0] == entries
+
+    def test_diversity_ratio_short_samples(self):
+        """Samples shorter than middle_chars use the whole string as the key."""
+        from crossfire.generator import _diversity_ratio
+
+        samples = ["abc", "abc", "def", "ghi"]
+        ratio, unique = _diversity_ratio(samples, 50)
+        assert unique == 3
+        assert ratio == 0.75
+
+    def test_diversity_ratio_empty(self):
+        """Empty input doesn't divide by zero."""
+        from crossfire.generator import _diversity_ratio
+
+        ratio, unique = _diversity_ratio([], 50)
+        assert ratio == 1.0
+        assert unique == 0
+
+
 class TestIntermittentRstrFailures:
     """Some patterns make rstr throw on a fraction of calls — the generator
     must not `break` on the first exception, or we lose the useful output
