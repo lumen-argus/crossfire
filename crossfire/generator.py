@@ -90,6 +90,29 @@ def _patched_handle_state(self: Any, state: Any) -> Any:
 setattr(_RstrXeger, "_handle_repeat", _patched_handle_repeat)  # noqa: B010
 setattr(_RstrXeger, "_handle_state", _patched_handle_state)  # noqa: B010
 
+
+def _diversity_ratio(samples: list[str], middle_chars: int) -> tuple[float, int]:
+    """Return (unique_middles / len(samples), unique_middles).
+
+    Middle-N slice: center `middle_chars` characters of each sample, or the
+    whole sample when shorter. Stage-2 padding wraps every base match with
+    random prefix/suffix bytes, so prefix/suffix-based uniqueness looks high
+    even when every sample derives from a single degenerate base. The middle
+    preserves the shape the regex actually matched against.
+    """
+    if not samples:
+        return 1.0, 0
+    middles: set[str] = set()
+    for s in samples:
+        length = len(s)
+        if length <= middle_chars:
+            middles.add(s)
+        else:
+            start = (length - middle_chars) // 2
+            middles.add(s[start : start + middle_chars])
+    return len(middles) / len(samples), len(middles)
+
+
 # We default to "spawn" rather than "fork" because forking from a multi-threaded
 # parent process is unsafe: child processes inherit memory but only the calling
 # thread, leaving any locks held by other parent threads permanently locked in
@@ -286,6 +309,8 @@ class CorpusGenerator:
         else:
             log.info("Corpus generation: sequential mode (%d rules)", len(rules))
             all_entries, skipped = self._generate_sequential(rules, skip_invalid=skip_invalid)
+
+        self._warn_on_low_diversity(all_entries)
 
         duration = time.monotonic() - t0
         log.info(
@@ -488,6 +513,17 @@ class CorpusGenerator:
     _PAD_MAX_SIDE_LENGTH = 24
     _PAD_CHARSET = string.ascii_letters + string.digits + string.punctuation + " "
 
+    # Diversity metric: number of unique middle-N-char slices over total samples.
+    # Middles (not prefixes/suffixes) because stage-2 padding fans random bytes
+    # onto both ends of every base match, so prefix/suffix diversity is inflated
+    # and hides whether the underlying rstr pass produced a genuinely varied set.
+    # Threshold of 0.4 catches the 0.2.7 `kubernetes_secret_yaml` regression
+    # (10 unique / 27 samples = 0.37) while leaving inherently narrow patterns
+    # like `inst_tag` (16/30 = 0.53) above the line.
+    _DIVERSITY_MIDDLE_CHARS = 50
+    _DIVERSITY_WARN_THRESHOLD = 0.4
+    _DIVERSITY_MIN_SAMPLES = 10
+
     def _generate_positive(self, rule: Rule, validator: re.Pattern[str]) -> list[str]:
         """Generate matching strings for a rule via rstr → padding → fallback."""
         strings: set[str] = set()
@@ -601,6 +637,47 @@ class CorpusGenerator:
                 s = "".join(random.choices(charset, k=length))
                 if len(s) <= self.max_string_length and validator.search(s):
                     strings.add(s)
+
+    def _warn_on_low_diversity(self, entries: list[CorpusEntry]) -> None:
+        """Inspect generated positive samples per-rule and warn on degeneracy.
+
+        Runs parent-side after collection so warnings fire regardless of
+        parallel/sequential mode (spawn workers don't forward logs). Silent-
+        degenerate output is the failure mode rstr's non-greedy bug hit on
+        `kubernetes_secret_yaml` (27 samples / ~10 unique middles, all sharing
+        the same degenerate core). The generator itself raises only on *count*
+        failures; this pass makes *shape* failures observable without changing
+        control flow.
+        """
+        per_rule: dict[str, list[str]] = {}
+        for e in entries:
+            if e.is_negative:
+                continue
+            per_rule.setdefault(e.source_rule, []).append(e.text)
+
+        for rule_name, samples in per_rule.items():
+            if len(samples) < self._DIVERSITY_MIN_SAMPLES:
+                continue
+            ratio, unique = _diversity_ratio(samples, self._DIVERSITY_MIDDLE_CHARS)
+            if ratio < self._DIVERSITY_WARN_THRESHOLD:
+                log.warning(
+                    "Rule '%s': low sample diversity (%d unique middle-%d-char "
+                    "slices across %d samples, ratio %.2f). Samples likely share "
+                    "a single degenerate shape — corpus value is limited.",
+                    rule_name,
+                    unique,
+                    self._DIVERSITY_MIDDLE_CHARS,
+                    len(samples),
+                    ratio,
+                )
+            else:
+                log.debug(
+                    "Rule '%s': sample diversity %d/%d (ratio %.2f)",
+                    rule_name,
+                    unique,
+                    len(samples),
+                    ratio,
+                )
 
     def _generate_negative(
         self, rule: Rule, positive: list[str], validator: re.Pattern[str]
